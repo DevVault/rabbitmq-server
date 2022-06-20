@@ -61,7 +61,7 @@ serialise_events() -> false.
 
 route(#exchange {name      = Name,
                  arguments = Args},
-      #delivery {message = Msg}) ->
+      Msg) ->
     case rabbit_db_ch_exchange:get(Name) of
         undefined ->
             [];

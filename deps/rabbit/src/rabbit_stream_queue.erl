@@ -20,7 +20,7 @@
          consume/3,
          cancel/5,
          handle_event/3,
-         deliver/2,
+         deliver/3,
          settle/5,
          credit/5,
          dequeue/5,
@@ -372,18 +372,19 @@ deliver(QSs, #delivery{message = Msg, confirm = Confirm} = Delivery) ->
               ok = osiris:write(LeaderPid, msg_to_iodata(Msg)),
               {Qs, Actions};
          ({Q, S0}, {Qs, Actions}) ->
-              {S, As} = deliver(Confirm, Delivery, S0),
-              {[{Q, S} | Qs], As ++ Actions}
+              S = deliver0(maps:get(correlation, Options, undefined),
+                           Message, S0),
+              {[{Q, S} | Qs], Actions}
       end, {[], []}, QSs).
 
-deliver(_Confirm, #delivery{message = Msg, msg_seq_no = MsgId},
-        #stream_client{name = Name,
-                       leader = LeaderPid,
-                       writer_id = WriterId,
-                       next_seq = Seq,
-                       correlation = Correlation0,
-                       soft_limit = SftLmt,
-                       slow = Slow0} = State) ->
+deliver0(MsgId, Msg,
+         #stream_client{name = Name,
+                        leader = LeaderPid,
+                        writer_id = WriterId,
+                        next_seq = Seq,
+                        correlation = Correlation0,
+                        soft_limit = SftLmt,
+                        slow = Slow0} = State) ->
     ok = osiris:write(LeaderPid, WriterId, Seq, msg_to_iodata(Msg)),
     Correlation = case MsgId of
                       undefined ->

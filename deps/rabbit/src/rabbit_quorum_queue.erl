@@ -25,7 +25,7 @@
 -export([settle/5, dequeue/5, consume/3, cancel/5]).
 -export([credit/5]).
 -export([purge/1]).
--export([stateless_deliver/2, deliver/2]).
+-export([stateless_deliver/2, deliver/3]).
 -export([dead_letter_publish/5]).
 -export([cluster_state/1, status/2]).
 -export([update_consumer_handler/8, update_consumer/9]).
@@ -858,41 +858,34 @@ stateless_deliver(ServerId, Delivery) ->
     ok = rabbit_fifo_client:untracked_enqueue([ServerId],
                                               Delivery#delivery.message).
 
--spec deliver(rabbit_amqqueue:name(), Confirm :: boolean(),
-              rabbit_types:delivery(), rabbit_fifo_client:state()) ->
-    {ok, rabbit_fifo_client:state(), rabbit_queue_type:actions()} |
-    {reject_publish, rabbit_fifo_client:state()}.
-deliver(QName, false, Delivery, QState0) ->
-    case rabbit_fifo_client:enqueue(QName, Delivery#delivery.message, QState0) of
-        {ok, _State, _Actions} = Res ->
-            Res;
+deliver0(QName, undefined, Msg, QState0) ->
+    case rabbit_fifo_client:enqueue(QName, Msg, QState0) of
+        {ok, _, _} = Res -> Res;
+        {slow, _} = Res -> Res;
         {reject_publish, State} ->
             {ok, State, []}
     end;
-deliver(QName, true, Delivery, QState0) ->
-    rabbit_fifo_client:enqueue(QName,
-                               Delivery#delivery.msg_seq_no,
-                               Delivery#delivery.message, QState0).
+deliver0(QName, Correlation, Msg, QState0) ->
+    rabbit_fifo_client:enqueue(QName, Correlation,
+                               Msg, QState0).
 
-deliver(QSs, #delivery{message = #basic_message{content = Content0} = Msg,
-                       confirm = Confirm} = Delivery0) ->
-    %% TODO: we could also consider clearing out the message id here
+deliver(QSs, #basic_message{content = Content0} = Msg0, Options) ->
+    Correlation = maps:get(correlation, Options, undefined),
     Content = prepare_content(Content0),
-    Delivery = Delivery0#delivery{message = Msg#basic_message{content = Content}},
+    Msg = Msg0#basic_message{content = Content},
     lists:foldl(
       fun({Q, stateless}, {Qs, Actions}) ->
               QRef = amqqueue:get_pid(Q),
-              ok = rabbit_fifo_client:untracked_enqueue(
-                     [QRef], Delivery#delivery.message),
+              ok = rabbit_fifo_client:untracked_enqueue([QRef], Msg),
               {Qs, Actions};
          ({Q, S0}, {Qs, Actions}) ->
               QName = amqqueue:get_name(Q),
-              case deliver(QName, Confirm, Delivery, S0) of
+              case deliver0(QName, Correlation, Msg, S0) of
                   {reject_publish, S} ->
-                      Seq = Delivery#delivery.msg_seq_no,
-                      {[{Q, S} | Qs], [{rejected, QName, [Seq]} | Actions]};
-                  {ok, S, As} ->
-                      {[{Q, S} | Qs], As ++ Actions}
+                      QName = rabbit_fifo_client:cluster_name(S),
+                      {[{Q, S} | Qs], [{rejected, QName, [Correlation]} | Actions]};
+                  {_, S} ->
+                      {[{Q, S} | Qs], Actions}
               end
       end, {[], []}, QSs).
 

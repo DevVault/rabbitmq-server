@@ -32,10 +32,12 @@ description() ->
 serialise_events() -> false.
 
 route(#exchange{name = Name, type = Type},
-      #delivery{message = #basic_message{routing_keys = Routes}}) ->
+      #basic_message{routing_keys = Routes}) ->
     case Type of
-        direct -> route_v2(Name, Routes);
-        _ -> rabbit_router:match_routing_key(Name, Routes)
+        direct ->
+            route_v2(Name, Routes);
+        _ ->
+            rabbit_router:match_routing_key(Name, Routes)
     end.
 
 validate(_X) -> ok.

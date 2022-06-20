@@ -36,7 +36,7 @@ serialise_events() -> false.
 
 %% NB: This may return duplicate results in some situations (that's ok)
 route(#exchange{name = XName},
-      #delivery{message = #basic_message{routing_keys = Routes}}) ->
+      #basic_message{routing_keys = Routes}) ->
     lists:append([rabbit_db_topic_exchange:match(XName, RKey) || RKey <- Routes]).
 
 validate(_X) -> ok.

@@ -344,20 +344,19 @@ info_all(VHostPath, Items, Ref, AggregatorPid) ->
 %% like #delivery{message = #basic_message{routing_keys = [...]}}
 -spec route(rabbit_types:exchange(), #delivery{})
                  -> [rabbit_amqqueue:name()].
-
 route(#exchange{name = #resource{virtual_host = VHost, name = RName} = XName,
                 decorators = Decorators} = X,
-      #delivery{message = #basic_message{routing_keys = RKs}} = Delivery) ->
+      #basic_message{routing_keys = RKs} = Message) ->
     case RName of
         <<>> ->
             RKsSorted = lists:usort(RKs),
-            [rabbit_channel:deliver_reply(RK, Delivery) ||
+            [rabbit_channel:deliver_reply(RK, Message) ||
              RK <- RKsSorted, virtual_reply_queue(RK)],
             [rabbit_misc:r(VHost, queue, RK) || RK <- RKsSorted,
                                                 not virtual_reply_queue(RK)];
         _ ->
             Decs = rabbit_exchange_decorator:select(route, Decorators),
-            lists:usort(route1(Delivery, Decs, {[X], XName, []}))
+            lists:usort(route1(Message, Decs, {[X], XName, []}))
     end.
 
 virtual_reply_queue(<<"amq.rabbitmq.reply-to.", _/binary>>) -> true;
@@ -365,12 +364,12 @@ virtual_reply_queue(_)                                      -> false.
 
 route1(_, _, {[], _, QNames}) ->
     QNames;
-route1(Delivery, Decorators,
+route1(Message, Decorators,
        {[X = #exchange{type = Type} | WorkList], SeenXs, QNames}) ->
-    ExchangeDests  = (type_to_module(Type)):route(X, Delivery),
-    DecorateDests  = process_decorators(X, Decorators, Delivery),
+    ExchangeDests  = (type_to_module(Type)):route(X, Message),
+    DecorateDests  = process_decorators(X, Decorators, Message),
     AlternateDests = process_alternate(X, ExchangeDests),
-    route1(Delivery, Decorators,
+    route1(Message, Decorators,
            lists:foldl(fun process_route/2, {WorkList, SeenXs, QNames},
                        AlternateDests ++ DecorateDests  ++ ExchangeDests)).
 
@@ -385,8 +384,8 @@ process_alternate(_X, _Results) ->
 
 process_decorators(_, [], _) -> %% optimisation
     [];
-process_decorators(X, Decorators, Delivery) ->
-    lists:append([Decorator:route(X, Delivery) || Decorator <- Decorators]).
+process_decorators(X, Decorators, Message) ->
+    lists:append([Decorator:route(X, Message) || Decorator <- Decorators]).
 
 process_route(#resource{kind = exchange} = XName,
               {_WorkList, XName, _QNames} = Acc) ->

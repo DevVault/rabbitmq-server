@@ -37,7 +37,7 @@
          handle_down/4,
          handle_event/3,
          module/2,
-         deliver/3,
+         deliver/4,
          settle/5,
          credit/5,
          dequeue/5,
@@ -108,7 +108,8 @@
                           ok_msg := term(),
                           acting_user :=  rabbit_types:username()}.
 
-
+-type delivery_options() :: #{correlation => term(), %% sequence no typically
+                              atom() => term()}.
 
 -type settle_op() :: 'complete' | 'requeue' | 'discard'.
 
@@ -183,7 +184,8 @@
     {protocol_error, Type :: atom(), Reason :: string(), Args :: term()}.
 
 -callback deliver([{amqqueue:amqqueue(), queue_state()}],
-                  Delivery :: term()) ->
+                  Delivery :: term(),
+                  Options :: delivery_options()) ->
     {[{amqqueue:amqqueue(), queue_state()}], actions()}.
 
 -callback settle(queue_name(), settle_op(), rabbit_types:ctag(),
@@ -483,17 +485,18 @@ module(QRef, State) ->
     end.
 
 -spec deliver([amqqueue:amqqueue()], Delivery :: term(),
+              delivery_options(),
               stateless | state()) ->
     {ok, state(), actions()} | {error, Reason :: term()}.
-deliver(Qs, Delivery, State) ->
+deliver(Qs, Message, Options, State) ->
     try
-        deliver0(Qs, Delivery, State)
+        deliver0(Qs, Message, Options, State)
     catch
         exit:Reason ->
             {error, Reason}
     end.
 
-deliver0(Qs, Delivery, stateless) ->
+deliver0(Qs, Message, Options, stateless) ->
     ByType = lists:foldl(fun(Q, Acc) ->
                                  Mod = amqqueue:get_type(Q),
                                  maps:update_with(
@@ -502,10 +505,10 @@ deliver0(Qs, Delivery, stateless) ->
                                         end, [{Q, stateless}], Acc)
                          end, #{}, Qs),
     maps:foreach(fun(Mod, QSs) ->
-                         _ = Mod:deliver(QSs, Delivery)
+                         _ = Mod:deliver(QSs, Message, Options)
                  end, ByType),
     {ok, stateless, []};
-deliver0(Qs, Delivery, #?STATE{} = State0) ->
+deliver0(Qs, Message, Options, #?STATE{} = State0) ->
     %% TODO: optimise single queue case?
     %% sort by queue type - then dispatch each group
     ByType = lists:foldl(
@@ -525,7 +528,7 @@ deliver0(Qs, Delivery, #?STATE{} = State0) ->
                end, #{}, Qs),
     %%% dispatch each group to queue type interface?
     {Xs, Actions} = maps:fold(fun(Mod, QSs, {X0, A0}) ->
-                                      {X, A} = Mod:deliver(QSs, Delivery),
+                                      {X, A} = Mod:deliver(QSs, Message, Options),
                                       {X0 ++ X, A0 ++ A}
                               end, {[], []}, ByType),
     State = lists:foldl(
