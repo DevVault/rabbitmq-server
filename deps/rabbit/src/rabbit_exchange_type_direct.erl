@@ -31,8 +31,8 @@ description() ->
 
 serialise_events() -> false.
 
-route(#exchange{name = Name, type = Type},
-      #basic_message{routing_keys = Routes}) ->
+route(#exchange{name = Name, type = Type}, Msg) ->
+    Routes = mc:get_annotation(routing_keys, Msg),
     case Type of
         direct ->
             route_v2(Name, Routes);

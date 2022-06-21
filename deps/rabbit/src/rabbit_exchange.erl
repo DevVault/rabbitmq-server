@@ -7,7 +7,6 @@
 
 -module(rabbit_exchange).
 -include_lib("rabbit_common/include/rabbit.hrl").
--include_lib("rabbit_common/include/rabbit_framing.hrl").
 
 -export([recover/1, policy_changed/2, callback/4, declare/7,
          assert_equivalence/6, assert_args_equivalence/2, check_type/1, exists/1,
@@ -338,22 +337,24 @@ info_all(VHostPath, Items, Ref, AggregatorPid) ->
     rabbit_control_misc:emitting_map(
       AggregatorPid, Ref, fun(X) -> info(X, Items) end, list(VHostPath)).
 
-%% rabbit_types:delivery() is more strict than #delivery{}, some
-%% fields can't be undefined. But there are places where
-%% rabbit_exchange:route/2 is called with the absolutely bare delivery
-%% like #delivery{message = #basic_message{routing_keys = [...]}}
--spec route(rabbit_types:exchange(), #delivery{})
-                 -> [rabbit_amqqueue:name()].
-route(#exchange{name = #resource{virtual_host = VHost, name = RName} = XName,
+-spec route(rabbit_types:exchange(), mc:state()) ->
+    [rabbit_amqqueue:name() | {virtual_reply_queue, binary()}].
+route(#exchange{name = #resource{virtual_host = VHost,
+                                 name = RName} = XName,
                 decorators = Decorators} = X,
-      #basic_message{routing_keys = RKs} = Message) ->
+      Message) ->
     case RName of
         <<>> ->
-            RKsSorted = lists:usort(RKs),
-            [rabbit_channel:deliver_reply(RK, Message) ||
-             RK <- RKsSorted, virtual_reply_queue(RK)],
-            [rabbit_misc:r(VHost, queue, RK) || RK <- RKsSorted,
-                                                not virtual_reply_queue(RK)];
+            RKs = mc:get_annotation(routing_keys, Message),
+            [begin
+                 case virtual_reply_queue(RK) of
+                     false ->
+                         rabbit_misc:r(VHost, queue, RK);
+                     true ->
+                         {virtual_reply_queue, RK}
+                 end
+             end
+             || RK <- lists:usort(RKs)];
         _ ->
             Decs = rabbit_exchange_decorator:select(route, Decorators),
             lists:usort(route1(Message, Decs, {[X], XName, []}))

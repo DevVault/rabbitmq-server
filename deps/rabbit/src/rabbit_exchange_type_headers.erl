@@ -33,7 +33,11 @@ description() ->
 serialise_events() -> false.
 
 route(#exchange{name = Name},
-      #basic_message{content = Content}) ->
+      Msg0) ->
+    %% TODO converting to amqp legacy means this will be slow for all protocols
+    %% except amqp legacy, ok for now to get it working but will need addressing
+    Msg = mc:convert(rabbit_mc_amqp_legacy, Msg0),
+    #content{} = Content = mc:protocol_state(Msg),
     Headers = case (Content#content.properties)#'P_basic'.headers of
                   undefined -> [];
                   H         -> rabbit_misc:sort_field_table(H)

@@ -38,8 +38,7 @@ description() ->
 
 serialise_events() -> false.
 
-route(X = #exchange{arguments = Args},
-      M = #basic_message{content = Content}) ->
+route(X = #exchange{arguments = Args}, Msg) ->
     %% This arg was introduced in the same release as this exchange type;
     %% it must be set
     {long, MaxHops} = rabbit_misc:table_lookup(Args, ?MAX_HOPS_ARG),
@@ -53,9 +52,12 @@ route(X = #exchange{arguments = Args},
                 {longstr, Val1} -> Val1;
                 _               -> unknown
             end,
+    %% TODO: provide a nice API for this kind of thing
+    LegacyMsg = mc:convert(rabbit_mc_amqp_legacy, Msg),
+    Content = mc:protocol_state(LegacyMsg),
     Headers = rabbit_basic:extract_headers(Content),
     case rabbit_federation_util:should_forward(Headers, MaxHops, DName, DVhost) of
-        true  -> rabbit_exchange_type_fanout:route(X, M);
+        true  -> rabbit_exchange_type_fanout:route(X, Msg);
         false -> []
     end.
 

@@ -1077,7 +1077,6 @@ publish_to_queues(
          auth_state = #auth_state{user = #user{username = Username}}
         } = State) ->
     RoutingKey = mqtt_to_amqp(Topic),
-    Confirm = Qos > ?QOS_0,
     Props = #'P_basic'{
                headers = [{<<"x-mqtt-publish-qos">>, byte, Qos}],
                delivery_mode = delivery_mode(Qos)},
@@ -1090,63 +1089,55 @@ publish_to_queues(
                   payload_fragments_rev = [Payload]
                  },
     Content = rabbit_message_interceptor:intercept(Content0),
-    BasicMessage = #basic_message{
-                      exchange_name = ExchangeName,
-                      routing_keys = [RoutingKey],
-                      content = Content,
-                      id = <<>>, %% GUID set in rabbit_classic_queue
-                      is_persistent = Confirm
-                     },
-    Delivery = #delivery{
-                  mandatory = false,
-                  confirm = Confirm,
-                  sender = self(),
-                  message = BasicMessage,
-                  msg_seq_no = PacketId,
-                  flow = Flow
-                 },
+
+    Message = rabbit_mc_amqp_legacy:message(ExchangeName,
+                                            RoutingKey,
+                                            Content),
     case rabbit_exchange:lookup(ExchangeName) of
         {ok, Exchange} ->
-            QNames = rabbit_exchange:route(Exchange, Delivery),
-            rabbit_trace:tap_in(BasicMessage, QNames, ConnName, Username, TraceState),
-            deliver_to_queues(Delivery, QNames, State);
+            QNames = rabbit_exchange:route(Exchange, Message),
+            rabbit_trace:tap_in(Message, QNames, ConnName, Username, TraceState),
+            Options = maps_put_truthy(
+                        flow, Flow, maps_put_truthy(correlation, PacketId, #{})),
+            deliver_to_queues(Message, Options, QNames, State);
         {error, not_found} ->
             ?LOG_ERROR("~s not found", [rabbit_misc:rs(ExchangeName)]),
             {error, exchange_not_found, State}
     end.
 
-deliver_to_queues(Delivery,
+deliver_to_queues(Message,
+                  Options,
                   RoutedToQNames,
                   State0 = #state{queue_states = QStates0,
                                   cfg = #cfg{proto_ver = ProtoVer}}) ->
     Qs0 = rabbit_amqqueue:lookup_many(RoutedToQNames),
     Qs = rabbit_amqqueue:prepend_extra_bcc(Qs0),
-    case rabbit_queue_type:deliver(Qs, Delivery, QStates0) of
+    case rabbit_queue_type:deliver(Qs, Message, Options, QStates0) of
         {ok, QStates, Actions} ->
             rabbit_global_counters:messages_routed(ProtoVer, length(Qs)),
-            State = process_routing_confirm(Delivery, Qs,
+            State = process_routing_confirm(Options, Qs,
                                             State0#state{queue_states = QStates}),
             %% Actions must be processed after registering confirms as actions may
             %% contain rejections of publishes.
             {ok, handle_queue_actions(Actions, State)};
         {error, Reason} ->
+            Corr = maps:get(correlation, Options, undefined),
             ?LOG_ERROR("Failed to deliver message with packet_id=~p to queues: ~p",
-                       [Delivery#delivery.msg_seq_no, Reason]),
+                       [Corr, Reason]),
             {error, Reason, State0}
     end.
 
-process_routing_confirm(#delivery{confirm = false},
-                        [], State = #state{cfg = #cfg{proto_ver = ProtoVer}}) ->
+process_routing_confirm(Options,
+                        [], State = #state{cfg = #cfg{proto_ver = ProtoVer}})
+  when not is_map_key(correlation, Options) ->
     rabbit_global_counters:messages_unroutable_dropped(ProtoVer, 1),
     State;
-process_routing_confirm(#delivery{confirm = true,
-                                  msg_seq_no = ?WILL_MSG_QOS_1_CORRELATION},
+process_routing_confirm(#{correlation := ?WILL_MSG_QOS_1_CORRELATION},
                         [], State = #state{cfg = #cfg{proto_ver = ProtoVer}}) ->
     %% unroutable will message with QoS 1
     rabbit_global_counters:messages_unroutable_dropped(ProtoVer, 1),
     State;
-process_routing_confirm(#delivery{confirm = true,
-                                  msg_seq_no = PktId},
+process_routing_confirm(#{correlation := PktId},
                         [], State = #state{cfg = #cfg{proto_ver = ProtoVer}}) ->
     rabbit_global_counters:messages_unroutable_returned(ProtoVer, 1),
     %% MQTT 5 spec:
@@ -1154,18 +1145,17 @@ process_routing_confirm(#delivery{confirm = true,
     %% Reason Code 0x10 (No matching subscribers) instead of 0x00 (Success).
     send_puback(PktId, State),
     State;
-process_routing_confirm(#delivery{confirm = false}, _, State) ->
-    State;
-process_routing_confirm(#delivery{confirm = true,
-                                  msg_seq_no = ?WILL_MSG_QOS_1_CORRELATION}, [_|_], State) ->
+process_routing_confirm(#{correlation := ?WILL_MSG_QOS_1_CORRELATION},
+                        [_|_], State) ->
     %% routable will message with QoS 1
     State;
-process_routing_confirm(#delivery{confirm = true,
-                                  msg_seq_no = PktId},
+process_routing_confirm(#{correlation := PktId},
                         Qs, State = #state{unacked_client_pubs = U0}) ->
     QNames = lists:map(fun amqqueue:get_name/1, Qs),
     U = rabbit_mqtt_confirms:insert(PktId, QNames, U0),
-    State#state{unacked_client_pubs = U}.
+    State#state{unacked_client_pubs = U};
+process_routing_confirm(#{}, _, State) ->
+    State.
 
 send_puback(PktIds0, State)
   when is_list(PktIds0) ->
@@ -1412,17 +1402,14 @@ deliver_to_client(Msgs, Ack, State) ->
                         deliver_one_to_client(Msg, Ack, S)
                 end, State, Msgs).
 
-deliver_one_to_client(Msg = {QNameOrType, QPid, QMsgId, _Redelivered,
-                             #basic_message{content = Content}},
+deliver_one_to_client({QNameOrType, QPid, QMsgId, _Redelivered, Msg} = Delivery,
                       AckRequired, State0) ->
-    #content{properties = #'P_basic'{headers = Headers}} =
-        rabbit_binary_parser:ensure_content_decoded(Content),
-    PublisherQoS = case rabbit_mqtt_util:table_lookup(Headers, <<"x-mqtt-publish-qos">>) of
-                       {byte, QoS0} ->
-                           QoS0;
+    PublisherQoS = case mc:proto_header(<<"x-mqtt-publish-qos">>, Msg) of
                        undefined ->
                            %% non-MQTT publishes are assumed to be QoS 1 regardless of delivery_mode
-                           ?QOS_1
+                           ?QOS_1;
+                       QoS0 ->
+                           QoS0
                    end,
     SubscriberQoS = case AckRequired of
                         true ->
@@ -1431,7 +1418,7 @@ deliver_one_to_client(Msg = {QNameOrType, QPid, QMsgId, _Redelivered,
                             ?QOS_0
                     end,
     QoS = effective_qos(PublisherQoS, SubscriberQoS),
-    State1 = maybe_publish_to_client(Msg, QoS, State0),
+    State1 = maybe_publish_to_client(Delivery, QoS, State0),
     State = maybe_auto_ack(AckRequired, QoS, QNameOrType, QMsgId, State1),
     ok = maybe_notify_sent(QNameOrType, QPid, State),
     State.
@@ -1447,12 +1434,12 @@ maybe_publish_to_client({_, _, _, _Redelivered = true, _}, ?QOS_0, State) ->
     %% Do not redeliver to MQTT subscriber who gets message at most once.
     State;
 maybe_publish_to_client(
-  {QNameOrType, _QPid, QMsgId, Redelivered,
-   #basic_message{
-      routing_keys = [RoutingKey | _CcRoutes],
-      content = #content{payload_fragments_rev = FragmentsRev}}} = Msg,
+  {QNameOrType, _QPid, QMsgId, Redelivered, Msg} = Delivery,
   QoS, State0) ->
+    [RoutingKey | _] = mc:get_annotation(routing_keys, Msg),
     {PacketId, State} = msg_id_to_packet_id(QMsgId, QoS, State0),
+    AmqpLegMsg = mc:convert(rabbit_mc_amqp_legacy, Msg),
+    #content{payload_fragments_rev = FragmentsRev} = mc:protocol_state(AmqpLegMsg),
     Packet =
     #mqtt_packet{
        fixed = #mqtt_packet_fixed{
@@ -1464,7 +1451,7 @@ maybe_publish_to_client(
                      topic_name = amqp_to_mqtt(RoutingKey)},
        payload = lists:reverse(FragmentsRev)},
     send(Packet, State),
-    trace_tap_out(Msg, State),
+    trace_tap_out(Delivery, State),
     message_delivered(QNameOrType, Redelivered, QoS, State),
     State.
 
@@ -1845,3 +1832,11 @@ format_status(
       ra_register_state => RaRegisterState,
       queues_soft_limit_exceeded => QSLE,
       qos0_messages_dropped => Qos0MsgsDropped}.
+
+
+maps_put_truthy(_K, undefined, M) ->
+    M;
+% maps_put_truthy(_K, false, M) ->
+%     M;
+maps_put_truthy(K, V, M) ->
+    maps:put(K, V, M).
