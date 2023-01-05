@@ -17,49 +17,60 @@
 
 all() ->
     [
-      {group, unclustered_2_nodes},
-      {group, unclustered_3_nodes},
-      {group, clustered_2_nodes},
-      {group, clustered_4_nodes}
+      {group, mnesia_store},
+      {group, khepri_store}
     ].
 
 groups() ->
-    [
-      {unclustered_2_nodes, [], [
-          {cluster_size_2, [], [
-              classic_config_discovery_node_list
-            ]}
-        ]},
-      {unclustered_3_nodes, [], [
-          {cluster_size_3, [], [
-              join_and_part_cluster,
-              join_cluster_bad_operations,
-              join_to_start_interval,
-              forget_cluster_node,
-              change_cluster_node_type,
-              change_cluster_when_node_offline,
-              update_cluster_nodes,
-              force_reset_node
-            ]}
-        ]},
-      {clustered_2_nodes, [], [
-          {cluster_size_2, [], [
-              forget_removes_things,
-              reset_removes_things,
-              forget_offline_removes_things,
-              force_boot,
-              status_with_alarm,
-              pid_file_and_await_node_startup,
-              await_running_count,
-              start_with_invalid_schema_in_path,
-              persistent_cluster_id
-            ]}
-        ]},
-      {clustered_4_nodes, [], [
-          {cluster_size_4, [], [
-              forget_promotes_offline_follower
-            ]}
-        ]}
+    [{mnesia_store, [], [
+                         {unclustered_2_nodes, [], 
+                          [
+                           {cluster_size_2, [], [
+                                                 classic_config_discovery_node_list
+                                                ]}
+                          ]},
+                         {unclustered_3_nodes, [],
+                          [
+                           {cluster_size_3, [], [
+                                                 join_and_part_cluster,
+                                                 join_cluster_bad_operations,
+                                                 join_to_start_interval,
+                                                 forget_cluster_node,
+                                                 change_cluster_node_type,
+                                                 change_cluster_when_node_offline,
+                                                 update_cluster_nodes,
+                                                 force_reset_node
+                                                ]}
+                          ]},
+                         {clustered_2_nodes, [],
+                          [
+                           {cluster_size_2, [], [
+                                                 forget_removes_things,
+                                                 reset_removes_things,
+                                                 forget_offline_removes_things,
+                                                 force_boot,
+                                                 status_with_alarm,
+                                                 pid_file_and_await_node_startup,
+                                                 await_running_count,
+                                                 start_with_invalid_schema_in_path,
+                                                 persistent_cluster_id
+                                                ]}
+                          ]},
+                         {clustered_4_nodes, [],
+                          [
+                           {cluster_size_4, [], [
+                                                 forget_promotes_offline_follower
+                                                ]}
+                          ]}
+                        ]},
+     {khepri_store, [], [
+                         {clustered_2_nodes, [],
+                          [
+                           {cluster_size_2, [], [
+                                                 change_cluster_node_type_in_khepri
+                                                 ]}
+                          ]}
+                        ]}
     ].
 
 suite() ->
@@ -84,6 +95,10 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     rabbit_ct_helpers:run_teardown_steps(Config).
 
+init_per_group(mnesia_store, Config) ->
+    rabbit_ct_helpers:set_config(Config, [{metadata_store, mnesia}]);
+init_per_group(khepri_store, Config) ->
+    rabbit_ct_helpers:set_config(Config, [{metadata_store, khepri}]);
 init_per_group(unclustered_2_nodes, Config) ->
     rabbit_ct_helpers:set_config(Config, [{rmq_nodes_clustered, false}]);
 init_per_group(unclustered_3_nodes, Config) ->
@@ -102,7 +117,17 @@ init_per_group(cluster_size_4, Config) ->
 end_per_group(_, Config) ->
     Config.
 
+init_per_testcase(create_bad_schema = Testcase, Config) ->
+    case rabbit_ct_broker_helpers:configured_metadata_store(Config) of
+        mnesia ->
+            init_per_testcase0(Testcase, Config);
+        _ ->
+            {skip, "Mnesia operations not supported by Khepri"}
+    end;
 init_per_testcase(Testcase, Config) ->
+    init_per_testcase0(Testcase, Config).
+
+init_per_testcase0(Testcase, Config) ->
     rabbit_ct_helpers:testcase_started(Config, Testcase),
     ClusterSize = ?config(rmq_nodes_count, Config),
     TestNumber = rabbit_ct_helpers:testcase_number(Config, ?MODULE, Testcase),
@@ -414,7 +439,10 @@ forget_promotes_offline_follower(Config) ->
     %%
     %% So forgetting A should offline-promote the queue to D, keeping
     %% the message.
-
+    
+    %% TODO doesn't work with Khepri running if the other node is down!!
+    %% However, Khepri is not enabled. Should we skip leaving the Khepri cluster
+    %% on that case?
     {ok, _} = rabbit_ct_broker_helpers:rabbitmqctl(Config, C,
       ["forget_cluster_node", A]),
 
@@ -507,6 +535,18 @@ change_cluster_node_type(Config) ->
     ok = stop_app(Hare),
     assert_failure(fun () -> change_cluster_node_type(Hare, ram) end),
     ok = start_app(Hare).
+
+change_cluster_node_type_in_khepri(Config) ->
+    [Rabbit, Hare] = cluster_members(Config),
+
+    assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
+                          [Rabbit, Hare]),
+    change_cluster_node_type(Rabbit, ram),
+    assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
+                          [Rabbit, Hare]),
+    change_cluster_node_type(Rabbit, disc),
+    assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
+                          [Rabbit, Hare]).
 
 change_cluster_when_node_offline(Config) ->
     [Rabbit, Hare, Bunny] = cluster_members(Config),

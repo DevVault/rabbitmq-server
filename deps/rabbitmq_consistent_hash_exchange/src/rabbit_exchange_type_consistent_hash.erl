@@ -48,7 +48,11 @@
 
 init() ->
     rabbit_db_ch_exchange:setup_schema(),
+<<<<<<< HEAD
     _ = recover(),
+=======
+    recover(),
+>>>>>>> 7b61c2e402 (Khepri: The One Commit)
     ok.
 
 info(_X) -> [].
@@ -169,6 +173,7 @@ add_binding(_Serial, _X, #binding{source = S, destination = D, key = K}) ->
             rabbit_log:debug("Consistent hashing exchange: adding binding from "
                              "exchange ~s to destination ~s with routing key '~s'",
                              [rabbit_misc:rs(S), rabbit_misc:rs(D), K])
+<<<<<<< HEAD
     end.
 
 chx_hash_ring_update_fun(#chx_hash_ring{bucket_map = BM0,
@@ -220,8 +225,61 @@ ch_hash_ring_delete_fun(#chx_hash_ring{bucket_map = BM0,
             NextN = NexN0 - N,
             Chx0#chx_hash_ring{bucket_map = BM1,
                                next_bucket_number = NextN}
+=======
+>>>>>>> 7b61c2e402 (Khepri: The One Commit)
     end.
 
+chx_hash_ring_update_fun(#chx_hash_ring{bucket_map = BM0,
+                                        next_bucket_number = NexN0} = Chx0,
+                         Dst, Weight) ->
+    case map_has_value(BM0, Dst) of
+        true ->
+            already_exists;
+        false ->
+            NextN   = NexN0 + Weight,
+            %% hi/lo bucket counters are 0-based but weight is 1-based
+            Range   = lists:seq(NexN0, (NextN - 1)),
+            BM      = lists:foldl(fun(Key, Acc) ->
+                                          maps:put(Key, Dst, Acc)
+                                  end, BM0, Range),
+            Chx0#chx_hash_ring{bucket_map = BM,
+                               next_bucket_number = NextN}
+    end.
+
+remove_bindings(_Serial, _X, Bindings) ->
+    Ret = rabbit_db_ch_exchange:delete_bindings(Bindings, fun ch_hash_ring_delete_fun/2),
+    [rabbit_log:warning("Can't remove binding: hash ring state for exchange ~s wasn't found",
+                        [rabbit_misc:rs(X)]) || {not_found, X} <- Ret],
+    ok.
+
+ch_hash_ring_delete_fun(#chx_hash_ring{bucket_map = BM0,
+                                       next_bucket_number = NexN0} = Chx0,
+                       Dst) ->
+    %% Buckets with lower numbers stay as is; buckets that
+    %% belong to this binding are removed; buckets with
+    %% greater numbers are updated (their numbers are adjusted downwards)
+    BucketsOfThisBinding = maps:filter(fun (_K, V) -> V =:= Dst end, BM0),
+    case maps:size(BucketsOfThisBinding) of
+        0             ->
+            not_found;
+        N when N >= 1 ->
+            KeysOfThisBinding  = lists:usort(maps:keys(BucketsOfThisBinding)),
+            LastBucket         = lists:last(KeysOfThisBinding),
+            FirstBucket        = hd(KeysOfThisBinding),
+            BucketsDownTheRing = maps:filter(fun (K, _) -> K > LastBucket end, BM0),
+            UnchangedBuckets   = maps:filter(fun (K, _) -> K < FirstBucket end, BM0),
+            
+            %% final state with "down the ring" buckets updated
+            NewBucketsDownTheRing = maps:fold(
+                                      fun(K0, V, Acc)  ->
+                                              maps:put(K0 - N, V, Acc)
+                                      end, #{}, BucketsDownTheRing),
+            BM1 = maps:merge(UnchangedBuckets, NewBucketsDownTheRing),
+            NextN = NexN0 - N,
+            Chx0#chx_hash_ring{bucket_map = BM1,
+                               next_bucket_number = NextN}
+    end.
+            
 -spec ring_state(vhost:name(), rabbit_misc:resource_name()) ->
     {ok, #chx_hash_ring{}} | {error, not_found}.
 ring_state(VirtualHost, XName) ->

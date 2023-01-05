@@ -7,6 +7,7 @@
 
 -module(rabbit_db_queue).
 
+-include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 -include("amqqueue.hrl").
@@ -26,10 +27,12 @@
          set_many/1,
          delete/2,
          update/2,
-         update_decorators/1,
+         update_decorators/2,
          exists/1
         ]).
 
+%% Once mnesia is removed, all transient entities will be deleted. These can be replaced
+%% with the plain get_all* functions
 -export([
          get_all_durable/0,
          get_all_durable_by_type/1,
@@ -40,21 +43,33 @@
          consistent_exists/1
         ]).
 
-%% Used by on_node_up and on_node_down
+%% Used by on_node_up and on_node_down.
+%% Can be deleted once transient entities/mnesia are removed.
 -export([foreach_transient/1,
          delete_transient/1]).
 
-%% Used only by forget all durable
+%% Only used by rabbit_amqqueue:forget_node_for_queue, which is only called
+%% by `rabbit_mnesia:remove_node_if_mnesia_running`. Thus, once mnesia and/or
+%% HA queues are removed it can be deleted.
 -export([foreach_durable/2,
          internal_delete/3]).
 
+%% Storing it on Khepri is not needed, this function is just used in
+%% rabbit_quorum_queue to ensure the queue is present in the rabbit_queue
+%% table and not just in rabbit_durable_queue. Can be deleted with mnesia removal
 -export([set_dirty/1]).
 
 %% Used by other rabbit_db_* modules
 -export([
          update_in_mnesia_tx/2,
-         get_durable_in_mnesia_tx/1
+         update_in_khepri_tx/2,
+         get_durable_in_mnesia_tx/1,
+         get_in_khepri_tx/1
         ]).
+
+-export([mnesia_write_to_khepri/2,
+         mnesia_delete_to_khepri/2,
+         clear_data_in_khepri/1]).
 
 %% For testing
 -export([clear/0]).
@@ -77,13 +92,20 @@
 
 get_all() ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_in_mnesia() end
+      #{mnesia => fun() -> get_all_in_mnesia() end,
+        khepri => fun() -> get_all_in_khepri() end
        }).
 
 get_all_in_mnesia() ->
     list_with_possible_retry_in_mnesia(
       fun() ->
               rabbit_db:list_in_mnesia(?MNESIA_TABLE, amqqueue:pattern_match_all())
+      end).
+
+get_all_in_khepri() ->
+    list_with_possible_retry_in_khepri(
+      fun() ->
+              rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()])
       end).
 
 -spec get_all(VHostName) -> [Queue] when
@@ -98,7 +120,8 @@ get_all_in_mnesia() ->
 
 get_all(VHostName) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_in_mnesia(VHostName) end
+      #{mnesia => fun() -> get_all_in_mnesia(VHostName) end,
+        khepri => fun() -> get_all_in_khepri(VHostName) end
        }).
 
 get_all_in_mnesia(VHostName) ->
@@ -106,6 +129,12 @@ get_all_in_mnesia(VHostName) ->
       fun() ->
               Pattern = amqqueue:pattern_match_on_name(rabbit_misc:r(VHostName, queue)),
               rabbit_db:list_in_mnesia(?MNESIA_TABLE, Pattern)
+      end).
+
+get_all_in_khepri(VHostName) ->
+    list_with_possible_retry_in_khepri(
+      fun() ->
+              rabbit_db:list_in_khepri(khepri_queues_path() ++ [VHostName, rabbit_khepri:if_has_data_wildcard()])
       end).
 
 %% -------------------------------------------------------------------
@@ -123,13 +152,20 @@ get_all_in_mnesia(VHostName) ->
 
 get_all_durable() ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_durable_in_mnesia() end
+      #{mnesia => fun() -> get_all_durable_in_mnesia() end,
+        khepri => fun() -> get_all_durable_in_khepri() end
        }).
 
 get_all_durable_in_mnesia() ->
     list_with_possible_retry_in_mnesia(
       fun() ->
               rabbit_db:list_in_mnesia(?MNESIA_DURABLE_TABLE, amqqueue:pattern_match_all())
+      end).
+
+get_all_durable_in_khepri() ->
+    list_with_possible_retry_in_khepri(
+      fun() ->
+              rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()])
       end).
 
 -spec get_all_durable_by_type(Type) -> [Queue] when
@@ -144,12 +180,17 @@ get_all_durable_in_mnesia() ->
 
 get_all_durable_by_type(Type) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_durable_by_type_in_mnesia(Type) end
+      #{mnesia => fun() -> get_all_durable_by_type_in_mnesia(Type) end,
+        khepri => fun() -> get_all_durable_by_type_in_khepri(Type) end
        }).
 
 get_all_durable_by_type_in_mnesia(Type) ->
     Pattern = amqqueue:pattern_match_on_type(Type),
     rabbit_db:list_in_mnesia(?MNESIA_DURABLE_TABLE, Pattern).
+
+get_all_durable_by_type_in_khepri(Type) ->
+    Pattern = amqqueue:pattern_match_on_type(Type),
+    rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data([?KHEPRI_WILDCARD_STAR_STAR, #if_data_matches{pattern = Pattern}])]).
 
 %% -------------------------------------------------------------------
 %% filter_all_durable().
@@ -167,7 +208,8 @@ get_all_durable_by_type_in_mnesia(Type) ->
 
 filter_all_durable(FilterFun) ->
     rabbit_db:run(
-      #{mnesia => fun() -> filter_all_durable_in_mnesia(FilterFun) end
+      #{mnesia => fun() -> filter_all_durable_in_mnesia(FilterFun) end,
+        khepri => fun() -> filter_all_durable_in_khepri(FilterFun) end
        }).
 
 filter_all_durable_in_mnesia(FilterFun) ->
@@ -177,6 +219,19 @@ filter_all_durable_in_mnesia(FilterFun) ->
                                 FilterFun(Q)
                           ]))
       end).
+
+filter_all_durable_in_khepri(FilterFun) ->
+    Path = khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()],
+    {ok, Res} = rabbit_khepri:fold(
+                  Path,
+                  fun(_, #{data := Q}, Acc0) ->
+                          case FilterFun(Q) of
+                              true -> [Q | Acc0];
+                              false -> Acc0
+                          end
+                  end,
+                  []),
+    Res.
 
 %% -------------------------------------------------------------------
 %% list().
@@ -193,11 +248,20 @@ filter_all_durable_in_mnesia(FilterFun) ->
 
 list() ->
     rabbit_db:run(
-      #{mnesia => fun() -> list_in_mnesia() end
+      #{mnesia => fun() -> list_in_mnesia() end,
+        khepri => fun() -> list_in_khepri() end
        }).
 
 list_in_mnesia() ->
     mnesia:dirty_all_keys(?MNESIA_TABLE).
+
+list_in_khepri() ->
+    case rabbit_khepri:match(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()]) of
+        {ok, Map} ->
+            maps:fold(fun(_K, Q, Acc) -> [amqqueue:get_name(Q) | Acc] end, [], Map);
+        _ ->
+            []
+    end.
 
 %% -------------------------------------------------------------------
 %% count().
@@ -214,11 +278,15 @@ list_in_mnesia() ->
 
 count() ->
     rabbit_db:run(
-      #{mnesia => fun() -> count_in_mnesia() end
+      #{mnesia => fun() -> count_in_mnesia() end,
+        khepri => fun() -> count_in_khepri() end
        }).
 
 count_in_mnesia() ->
     mnesia:table_info(?MNESIA_TABLE, size).
+
+count_in_khepri() ->
+    rabbit_khepri:count_children(khepri_queues_path() ++ [?KHEPRI_WILDCARD_STAR]).
 
 -spec count(VHostName) -> Count when
       VHostName :: vhost:name(),
@@ -241,7 +309,8 @@ count(VHostName) ->
 
 list_for_count(VHostName) ->
     rabbit_db:run(
-      #{mnesia => fun() -> list_for_count_in_mnesia(VHostName) end
+      #{mnesia => fun() -> list_for_count_in_mnesia(VHostName) end,
+        khepri => fun() -> list_for_count_in_khepri(VHostName) end
        }).
 
 list_for_count_in_mnesia(VHostName) ->
@@ -257,6 +326,12 @@ list_for_count_in_mnesia(VHostName) ->
                                              amqqueue:field_vhost()))
       end).
 
+list_for_count_in_khepri(VHostName) ->
+    list_with_possible_retry_in_khepri(
+      fun() ->
+              rabbit_khepri:count_children(khepri_queues_path() ++ [VHostName])
+      end).
+
 %% -------------------------------------------------------------------
 %% delete().
 %% -------------------------------------------------------------------
@@ -268,7 +343,8 @@ list_for_count_in_mnesia(VHostName) ->
 
 delete(QueueName, Reason) ->
     rabbit_db:run(
-      #{mnesia => fun() -> delete_in_mnesia(QueueName, Reason) end
+      #{mnesia => fun() -> delete_in_mnesia(QueueName, Reason) end,
+        khepri => fun() -> delete_in_khepri(QueueName) end
        }).
 
 delete_in_mnesia(QueueName, Reason) ->
@@ -287,6 +363,20 @@ delete_in_mnesia(QueueName, Reason) ->
               end
       end).
 
+delete_in_khepri(QueueName) ->
+    rabbit_khepri:transaction(
+      fun () ->
+              Path = khepri_queue_path(QueueName),
+              case khepri_tx_adv:delete(Path) of
+                  {ok, #{data := _}} ->
+                      %% we want to execute some things, as decided by rabbit_exchange,
+                      %% after the transaction.
+                      rabbit_db_binding:delete_for_destination_in_khepri(QueueName, false);
+                  {ok, _} ->
+                      ok
+              end
+      end, rw).
+
 %% -------------------------------------------------------------------
 %% internal_delete().
 %% -------------------------------------------------------------------
@@ -302,7 +392,8 @@ internal_delete(QueueName, OnlyDurable, Reason) ->
     %% by `rabbit_mnesia:remove_node_if_mnesia_running'. Thus, once mnesia and/or
     %% HA queues are removed it can be removed.
     rabbit_db:run(
-      #{mnesia => fun() -> internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) end
+      #{mnesia => fun() -> internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) end,
+        khepri => fun() -> ok end
        }).
 
 internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) ->
@@ -331,7 +422,8 @@ internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) ->
       Ret :: [Queue :: amqqueue:amqqueue()].
 get_many(Names) when is_list(Names) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_many_in_mnesia(?MNESIA_TABLE, Names) end
+      #{mnesia => fun() -> get_many_in_mnesia(?MNESIA_TABLE, Names) end,
+        khepri => fun() -> get_many_in_khepri(Names) end
        }).
 
 get_many_in_mnesia(Table, [Name]) ->
@@ -340,6 +432,14 @@ get_many_in_mnesia(Table, Names) when is_list(Names) ->
     %% Normally we'd call mnesia:dirty_read/1 here, but that is quite
     %% expensive for reasons explained in rabbit_mnesia:dirty_read/1.
     lists:append([ets:lookup(Table, Name) || Name <- Names]).
+
+get_many_in_khepri(Names) when is_list(Names) ->
+    lists:foldl(fun(Name, Acc) ->
+                        case get_in_khepri(Name) of
+                            {ok, X} -> [X | Acc];
+                            _ -> Acc
+                        end
+                end, [], Names).
 
 %% -------------------------------------------------------------------
 %% get().
@@ -350,11 +450,18 @@ get_many_in_mnesia(Table, Names) when is_list(Names) ->
       Ret :: {ok, Queue :: amqqueue:amqqueue()} | {error, not_found}.
 get(Name) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_in_mnesia(Name) end
+      #{mnesia => fun() -> get_in_mnesia(Name) end,
+        khepri => fun() -> get_in_khepri(Name) end
        }).
 
 get_in_mnesia(Name) ->
     rabbit_mnesia:dirty_read({?MNESIA_TABLE, Name}).
+
+get_in_khepri(Name) ->
+    case rabbit_khepri:get(khepri_queue_path(Name)) of
+        {ok, Q} -> {ok, Q};
+        _       -> {error, not_found}
+    end.
 
 %% -------------------------------------------------------------------
 %% get_durable().
@@ -366,7 +473,8 @@ get_in_mnesia(Name) ->
 
 get_durable(Name) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_durable_in_mnesia(Name) end
+      #{mnesia => fun() -> get_durable_in_mnesia(Name) end,
+        khepri => fun() -> get_in_khepri(Name) end
        }).
 
 get_durable_in_mnesia(Name) ->
@@ -382,7 +490,8 @@ get_durable_in_mnesia(Name) ->
 
 get_many_durable(Names) when is_list(Names) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_many_in_mnesia(?MNESIA_DURABLE_TABLE, Names) end
+      #{mnesia => fun() -> get_many_in_mnesia(?MNESIA_DURABLE_TABLE, Names) end,
+        khepri => fun() -> get_many_in_khepri(Names) end
        }).
 
 %% -------------------------------------------------------------------
@@ -400,7 +509,8 @@ get_many_durable(Names) when is_list(Names) ->
 
 update(QName, Fun) ->
     rabbit_db:run(
-      #{mnesia => fun() -> update_in_mnesia(QName, Fun) end
+      #{mnesia => fun() -> update_in_mnesia(QName, Fun) end,
+        khepri => fun() -> update_in_khepri(QName, Fun) end
        }).
 
 update_in_mnesia(QName, Fun) ->
@@ -409,30 +519,76 @@ update_in_mnesia(QName, Fun) ->
               update_in_mnesia_tx(QName, Fun)
       end).
 
+update_in_khepri(QName, Fun) ->
+    Path = khepri_queue_path(QName),
+    Ret1 = rabbit_khepri:adv_get(Path),
+    case Ret1 of
+        {ok, #{data := Q, payload_version := Vsn}} ->
+            UpdatePath = khepri_path:combine_with_conditions(
+                           Path, [#if_payload_version{version = Vsn}]),
+            Q1 = Fun(Q),
+            Ret2 = rabbit_khepri:put(UpdatePath, Q1),
+            case Ret2 of
+                ok -> Q1;
+                {error, {khepri, mismatching_node, _}} ->
+                    update_in_khepri(QName, Fun);
+                Err -> Err
+            end;
+        _  ->
+            not_found
+    end.
+
 %% -------------------------------------------------------------------
 %% update_decorators().
 %% -------------------------------------------------------------------
 
--spec update_decorators(QName) -> ok when
-      QName :: rabbit_amqqueue:name().
+-spec update_decorators(QName, [Decorator]) -> ok when
+      QName :: rabbit_amqqueue:name(),
+      Decorator :: atom().
 %% @doc Updates an existing queue record adding the active queue decorators.
 %%
 %% @private
 
-update_decorators(QName) ->
+update_decorators(QName, Decorators) ->
     rabbit_db:run(
-      #{mnesia => fun() -> update_decorators_in_mnesia(QName) end
+      #{mnesia => fun() -> update_decorators_in_mnesia(QName, Decorators) end,
+        khepri => fun() -> update_decorators_in_khepri(QName, Decorators) end
        }).
 
-update_decorators_in_mnesia(Name) ->
+update_decorators_in_mnesia(Name, Decorators) ->
     rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               case mnesia:wread({?MNESIA_TABLE, Name}) of
-                  [Q] -> ok = mnesia:write(?MNESIA_TABLE, rabbit_queue_decorator:set(Q),
+                  [Q] -> ok = mnesia:write(?MNESIA_TABLE, amqqueue:set_decorators(Q, Decorators),
                                            write);
                   []  -> ok
               end
       end).
+
+update_decorators_in_khepri(QName, Decorators) ->
+    %% Decorators are stored on an ETS table, so we need to query them before the transaction.
+    %% Also, to verify which ones are active could lead to any kind of side-effects.
+    %% Thus it needs to be done outside of the transaction.
+    %% Decorators have just been calculated on `rabbit_queue_decorator:maybe_recover/1`, thus
+    %% we can update them here directly.
+    Path = khepri_queue_path(QName),
+    Ret1 = rabbit_khepri:adv_get(Path),
+    case Ret1 of
+        {ok, #{data := Q0, payload_version := Vsn}} ->
+            Q1 = amqqueue:reset_mirroring_and_decorators(Q0),
+            Q2 = amqqueue:set_decorators(Q1, Decorators),
+            UpdatePath = khepri_path:combine_with_conditions(
+                           Path, [#if_payload_version{version = Vsn}]),
+            Ret2 = rabbit_khepri:put(UpdatePath, Q2),
+            case Ret2 of
+                ok -> ok;
+                {error, {khepri, mismatching_node, _}} ->
+                    update_decorators_in_khepri(QName, Decorators);
+                {error, _} = Error -> Error
+            end;
+        _  ->
+            ok
+    end.
 
 %% -------------------------------------------------------------------
 %% update_durable().
@@ -449,7 +605,9 @@ update_decorators_in_mnesia(Name) ->
 update_durable(UpdateFun, FilterFun) ->
     rabbit_db:run(
       #{mnesia =>
-            fun() -> update_durable_in_mnesia(UpdateFun, FilterFun) end
+            fun() -> update_durable_in_mnesia(UpdateFun, FilterFun) end,
+        khepri =>
+            fun() -> update_durable_in_khepri(UpdateFun, FilterFun) end
        }).
 
 update_durable_in_mnesia(UpdateFun, FilterFun) ->
@@ -463,6 +621,21 @@ update_durable_in_mnesia(UpdateFun, FilterFun) ->
                   ok
           end),
     ok.
+
+update_durable_in_khepri(UpdateFun, FilterFun) ->
+    Path = khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()],
+    rabbit_khepri:transaction(
+      fun() ->
+              khepri_tx:foreach(Path,
+                                fun(Path0, #{data := Q}) ->
+                                        case FilterFun(Q) of
+                                            true ->
+                                                khepri_tx:put(Path0, UpdateFun(Q));
+                                            false ->
+                                                ok
+                                        end
+                                end)
+      end).
 
 %% -------------------------------------------------------------------
 %% exists().
@@ -479,11 +652,15 @@ update_durable_in_mnesia(UpdateFun, FilterFun) ->
 
 exists(QName) ->
     rabbit_db:run(
-      #{mnesia => fun() -> exists_in_mnesia(QName) end
+      #{mnesia => fun() -> exists_in_mnesia(QName) end,
+        khepri => fun() -> exists_in_khepri(QName) end
        }).
 
 exists_in_mnesia(QName) ->
     ets:member(?MNESIA_TABLE, QName).
+
+exists_in_khepri(QName) ->
+    rabbit_khepri:exists(khepri_queue_path(QName)).
 
 %% -------------------------------------------------------------------
 %% exists().
@@ -502,7 +679,8 @@ exists_in_mnesia(QName) ->
 
 consistent_exists(QName) ->
     rabbit_db:run(
-      #{mnesia => fun() -> consistent_exists_in_mnesia(QName) end
+      #{mnesia => fun() -> consistent_exists_in_mnesia(QName) end,
+        khepri => fun() -> exists_in_khepri(QName) end
        }).
 
 consistent_exists_in_mnesia(QName) ->
@@ -528,11 +706,15 @@ consistent_exists_in_mnesia(QName) ->
 get_all_by_type(Type) ->
     Pattern = amqqueue:pattern_match_on_type(Type),
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_by_pattern_in_mnesia(Pattern) end
+      #{mnesia => fun() -> get_all_by_pattern_in_mnesia(Pattern) end,
+        khepri => fun() -> get_all_by_pattern_in_khepri(Pattern) end
        }).
 
 get_all_by_pattern_in_mnesia(Pattern) ->
     rabbit_db:list_in_mnesia(?MNESIA_TABLE, Pattern).
+
+get_all_by_pattern_in_khepri(Pattern) ->
+    rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data([?KHEPRI_WILDCARD_STAR_STAR, #if_data_matches{pattern = Pattern}])]).
 
 %% -------------------------------------------------------------------
 %% get_all_by_type_and_node().
@@ -552,7 +734,8 @@ get_all_by_pattern_in_mnesia(Pattern) ->
 
 get_all_by_type_and_node(VHostName, Type, Node) ->
     rabbit_db:run(
-      #{mnesia => fun() -> get_all_by_type_and_node_in_mnesia(VHostName, Type, Node) end
+      #{mnesia => fun() -> get_all_by_type_and_node_in_mnesia(VHostName, Type, Node) end,
+        khepri => fun() -> get_all_by_type_and_node_in_khepri(VHostName, Type, Node) end
        }).
 
 get_all_by_type_and_node_in_mnesia(VHostName, Type, Node) ->
@@ -563,6 +746,11 @@ get_all_by_type_and_node_in_mnesia(VHostName, Type, Node) ->
                                 amqqueue:get_vhost(Q) =:= VHostName,
                                 amqqueue:qnode(Q) == Node]))
       end).
+
+get_all_by_type_and_node_in_khepri(VHostName, Type, Node) ->
+    Pattern = amqqueue:pattern_match_on_type(Type),
+    Qs = rabbit_db:list_in_khepri(khepri_queues_path() ++ [VHostName, rabbit_khepri:if_has_data([?KHEPRI_WILDCARD_STAR_STAR, #if_data_matches{pattern = Pattern}])]),
+    [Q || Q <- Qs, amqqueue:qnode(Q) == Node].
 
 %% -------------------------------------------------------------------
 %% create_or_get().
@@ -580,7 +768,8 @@ get_all_by_type_and_node_in_mnesia(VHostName, Type, Node) ->
 
 create_or_get(Q) ->
     rabbit_db:run(
-      #{mnesia => fun() -> create_or_get_in_mnesia(Q) end
+      #{mnesia => fun() -> create_or_get_in_mnesia(Q) end,
+        khepri => fun() -> create_or_get_in_khepri(Q) end
        }).
 
 create_or_get_in_mnesia(Q) ->
@@ -602,6 +791,16 @@ create_or_get_in_mnesia(Q) ->
               end
       end).
 
+create_or_get_in_khepri(Q) ->
+    QueueName = amqqueue:get_name(Q),
+    Path = khepri_queue_path(QueueName),
+    case rabbit_khepri:adv_create(Path, Q) of
+        {error, {khepri, mismatching_node, #{node_props := #{data := ExistingQ}}}} ->
+            {existing, ExistingQ};
+        _ ->
+            {created, Q}
+    end.
+
 %% -------------------------------------------------------------------
 %% set().
 %% -------------------------------------------------------------------
@@ -616,7 +815,8 @@ create_or_get_in_mnesia(Q) ->
 
 set(Q) ->
     rabbit_db:run(
-      #{mnesia => fun() -> set_in_mnesia(Q) end
+      #{mnesia => fun() -> set_in_mnesia(Q) end,
+        khepri => fun() -> set_in_khepri(Q) end
        }).
 
 set_in_mnesia(Q) ->
@@ -635,6 +835,10 @@ set_in_mnesia_tx(DurableQ, Q) ->
     end,
     ok = mnesia:write(?MNESIA_TABLE, Q, write).
 
+set_in_khepri(Q) ->
+    Path = khepri_queue_path(amqqueue:get_name(Q)),
+    rabbit_khepri:put(Path, Q).
+
 %% -------------------------------------------------------------------
 %% set_many().
 %% -------------------------------------------------------------------
@@ -649,7 +853,8 @@ set_in_mnesia_tx(DurableQ, Q) ->
 
 set_many(Qs) ->
     rabbit_db:run(
-      #{mnesia => fun() -> set_many_in_mnesia(Qs) end
+      #{mnesia => fun() -> set_many_in_mnesia(Qs) end,
+        khepri => fun() -> set_many_in_khepri(Qs) end
        }).
 
 set_many_in_mnesia(Qs) ->
@@ -660,6 +865,19 @@ set_many_in_mnesia(Qs) ->
                   [ok = mnesia:write(?MNESIA_DURABLE_TABLE, Q, write) || Q <- Qs],
                   ok
           end),
+    ok.
+
+set_many_in_khepri(Qs) ->
+    rabbit_khepri:transaction(
+      fun() ->
+              [begin
+                   Path = khepri_queue_path(amqqueue:get_name(Q)),
+                   case khepri_tx:put(Path, Q) of
+                       ok      -> ok;
+                       Error   -> khepri_tx:abort(Error)
+                   end
+               end || Q <- Qs]
+      end),
     ok.
 
 %% -------------------------------------------------------------------
@@ -677,7 +895,8 @@ set_many_in_mnesia(Qs) ->
 
 delete_transient(FilterFun) ->
     rabbit_db:run(
-      #{mnesia => fun() -> delete_transient_in_mnesia(FilterFun) end
+      #{mnesia => fun() -> delete_transient_in_mnesia(FilterFun) end,
+        khepri => fun() -> ok end
        }).
 
 delete_transient_in_mnesia(FilterFun) ->
@@ -732,7 +951,8 @@ partition_queues(T) ->
 
 foreach_transient(UpdateFun) ->
     rabbit_db:run(
-      #{mnesia => fun() -> foreach_transient_in_mnesia(UpdateFun) end
+      #{mnesia => fun() -> foreach_transient_in_mnesia(UpdateFun) end,
+        khepri => fun() -> ok end
        }).
 
 foreach_transient_in_mnesia(UpdateFun) ->
@@ -757,8 +977,8 @@ foreach_transient_in_mnesia(UpdateFun) ->
 
 foreach_durable(UpdateFun, FilterFun) ->
     rabbit_db:run(
-      #{mnesia =>
-            fun() -> foreach_durable_in_mnesia(UpdateFun, FilterFun) end
+      #{mnesia => fun() -> foreach_durable_in_mnesia(UpdateFun, FilterFun) end,
+        khepri => fun() -> ok end
        }).
 
 foreach_durable_in_mnesia(UpdateFun, FilterFun) ->
@@ -786,7 +1006,8 @@ foreach_durable_in_mnesia(UpdateFun, FilterFun) ->
 
 set_dirty(Q) ->
     rabbit_db:run(
-      #{mnesia => fun() -> set_dirty_in_mnesia(Q) end
+      #{mnesia => fun() -> set_dirty_in_mnesia(Q) end,
+        khepri => fun() -> ok end
        }).
 
 set_dirty_in_mnesia(Q) ->
@@ -818,6 +1039,27 @@ update_in_mnesia_tx(Name, Fun) ->
     end.
 
 %% -------------------------------------------------------------------
+%% update_in_khepri_tx().
+%% -------------------------------------------------------------------
+
+-spec update_in_khepri_tx(QName, UpdateFun) -> Ret when
+      QName :: rabbit_amqqueue:name(),
+      Queue :: amqqueue:amqqueue(),
+      UpdateFun :: fun((Queue) -> Queue),
+      Ret :: Queue | not_found.
+
+update_in_khepri_tx(Name, Fun) ->
+    Path = khepri_queue_path(Name),
+    case khepri_tx:get(Path) of
+        {ok, Q} ->
+            Q1 = Fun(Q),
+            ok = khepri_tx:put(Path, Q1),
+            Q1;
+        _  ->
+            not_found
+    end.
+
+%% -------------------------------------------------------------------
 %% get_durable_in_mnesia_tx().
 %% -------------------------------------------------------------------
 
@@ -831,6 +1073,13 @@ get_durable_in_mnesia_tx(Name) ->
         [Q] -> {ok, Q}
     end.
 
+%% TODO this should be internal, it's here because of mirrored queues
+get_in_khepri_tx(Name) ->
+    case khepri_tx:get(khepri_queue_path(Name)) of
+        {ok, X} -> [X];
+        _ -> []
+    end.
+
 %% -------------------------------------------------------------------
 %% clear().
 %% -------------------------------------------------------------------
@@ -842,13 +1091,69 @@ get_durable_in_mnesia_tx(Name) ->
 
 clear() ->
     rabbit_db:run(
-      #{mnesia => fun() -> clear_in_mnesia() end}).
+      #{mnesia => fun() -> clear_in_mnesia() end,
+        khepri => fun() -> clear_in_khepri() end}).
 
 clear_in_mnesia() ->
     {atomic, ok} = mnesia:clear_table(?MNESIA_TABLE),
     {atomic, ok} = mnesia:clear_table(?MNESIA_DURABLE_TABLE),
     ok.
 
+clear_in_khepri() ->
+    khepri_delete(khepri_queues_path()).
+
+khepri_delete(Path) ->
+    case rabbit_khepri:delete(Path) of
+        ok -> ok;
+        Error -> throw(Error)
+    end.
+
+%% --------------------------------------------------------------
+%% Feature flags
+%% --------------------------------------------------------------
+
+-spec mnesia_write_to_khepri(Table, [Queue]) -> ok when
+      Table :: atom(),
+      Queue :: amqqueue:amqqueue().
+
+mnesia_write_to_khepri(rabbit_queue, Qs) ->
+    rabbit_khepri:transaction(
+      fun() ->
+              [begin
+                   Path = khepri_queue_path(amqqueue:get_name(Q)),
+                   case khepri_tx:create(Path, Q) of
+                       ok -> ok;
+                       {error, {khepri, mismatching_node, _}} -> ok;
+                       Error -> throw(Error)
+                   end
+               end || Q <- Qs]
+      end, rw);
+mnesia_write_to_khepri(rabbit_durable_queue, _Qs) ->
+    %% All durable queues are on the `rabbit_queue` table too
+    ok.
+
+-spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
+      Table :: atom(),
+      ToDelete :: amqqueue:amqqueue() | rabbit_amqqueue:name().
+
+mnesia_delete_to_khepri(rabbit_queue, Q) when ?is_amqqueue(Q) ->
+    khepri_delete(khepri_queue_path(amqqueue:get_name(Q)));
+mnesia_delete_to_khepri(rabbit_queue, Name) when is_record(Name, resource) ->
+    khepri_delete(khepri_queue_path(Name));
+mnesia_delete_to_khepri(rabbit_durable_queue, Q) when ?is_amqqueue(Q) ->
+    khepri_delete(khepri_queue_path(amqqueue:get_name(Q)));
+mnesia_delete_to_khepri(rabbit_durable_queue, Name) when is_record(Name, resource) ->
+    khepri_delete(khepri_queue_path(Name)).
+
+-spec clear_data_in_khepri(Table) -> ok when
+      Table :: atom().
+
+clear_data_in_khepri(rabbit_queue) ->
+    khepri_delete(khepri_queues_path());
+clear_data_in_khepri(rabbit_durable_queue) ->
+    khepri_delete(khepri_queues_path()).
+
+%% --------------------------------------------------------------
 %% Internal
 %% --------------------------------------------------------------
 
@@ -883,3 +1188,34 @@ list_with_possible_retry_in_mnesia(Fun) ->
         Ret ->
             Ret
     end.
+
+list_with_possible_retry_in_khepri(Fun) ->
+    %% See equivalent `list_with_possible_retry_in_mnesia` first.
+    %% Not sure how much of this is possible in Khepri, as there is no dirty read,
+    %% but the amqqueue record migration is still happening.
+    %% Let's retry just in case
+    AmqqueueRecordVersion = amqqueue:record_version_to_use(),
+    case Fun() of
+        [] ->
+            case khepri_tx:is_transaction() of
+                true ->
+                    [];
+                false ->
+                    case amqqueue:record_version_to_use() of
+                        AmqqueueRecordVersion -> [];
+                        _                     -> Fun()
+                    end
+            end;
+        Ret ->
+            Ret
+    end.
+
+%% --------------------------------------------------------------
+%% Khepri paths
+%% --------------------------------------------------------------
+
+khepri_queues_path() ->
+    [?MODULE, queues].
+
+khepri_queue_path(#resource{virtual_host = VHost, name = Name}) ->
+    [?MODULE, queues, VHost, Name].

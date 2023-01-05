@@ -45,8 +45,13 @@ suite() ->
 %% -------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    rabbit_ct_helpers:log_environment(),
-    rabbit_ct_helpers:run_setup_steps(Config).
+    case rabbit_ct_broker_helpers:configured_metadata_store(Config) of
+        mnesia ->
+            rabbit_ct_helpers:log_environment(),
+            rabbit_ct_helpers:run_setup_steps(Config);
+        _ ->
+            {skip, "Node rename not supported by Khepri"}
+    end.
 
 end_per_suite(Config) ->
     rabbit_ct_helpers:run_teardown_steps(Config).

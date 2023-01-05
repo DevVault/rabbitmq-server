@@ -50,13 +50,13 @@ all_tests() ->
      filter_all_durable,
      get_durable,
      get_many_durable,
-     set_dirty,
-     internal_delete,
      update_durable
     ].
 
 mnesia_tests() ->
     [
+     set_dirty,
+     internal_delete,
      foreach_durable,
      foreach_transient,
      delete_transient,
@@ -75,7 +75,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     rabbit_ct_helpers:run_teardown_steps(Config).
 
+init_per_group(mnesia_store = Group, Config0) ->
+    Config = rabbit_ct_helpers:set_config(Config0, [{metadata_store, mnesia}]),
+    init_per_group_common(Group, Config);
 init_per_group(Group, Config) ->
+    init_per_group_common(Group, Config).
+
+init_per_group_common(Group, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [
         {rmq_nodename_suffix, Group},
         {rmq_nodes_count, 1}
@@ -137,7 +143,7 @@ get_many1(_Config) ->
     ?assertEqual([Q], rabbit_db_queue:get_many([QName, QName2])),
     ?assertEqual([], rabbit_db_queue:get_many([QName2])),
     ok = rabbit_db_queue:set(Q2),
-    ?assertEqual([Q, Q2], rabbit_db_queue:get_many([QName, QName2])),
+    ?assertEqual(lists:sort([Q, Q2]), lists:sort(rabbit_db_queue:get_many([QName, QName2]))),
     passed.
 
 get_all(Config) ->
@@ -455,8 +461,6 @@ update_durable1(_Config) ->
                        fun(Q0) when ?is_amqqueue(Q0) -> true end)),
     {ok, Q0} = rabbit_db_queue:get_durable(QName1),
     ?assertMatch(my_policy, amqqueue:get_policy(Q0)),
-    {ok, Q00} = rabbit_db_queue:get(QName1),
-    ?assertMatch(undefined, amqqueue:get_policy(Q00)),
     passed.
 
 foreach_durable(Config) ->

@@ -703,8 +703,10 @@ publish_coordinator_unavailable(Config) ->
     publish(Ch, Q),
     ?assertExit({{shutdown, {connection_closing, {server_initiated_close, 506, _}}}, _},
                 amqp_channel:wait_for_confirms(Ch, 60)),
-    ok = rabbit_ct_broker_helpers:start_node(Config, Server1),
-    ok = rabbit_ct_broker_helpers:start_node(Config, Server2),
+    ok = rabbit_ct_broker_helpers:async_start_node(Config, Server1),
+    ok = rabbit_ct_broker_helpers:async_start_node(Config, Server2),
+    ok = rabbit_ct_broker_helpers:wait_for_async_start_node(Server1),
+    ok = rabbit_ct_broker_helpers:wait_for_async_start_node(Server2),
     rabbit_ct_helpers:await_condition(
       fun () ->
               Info = find_queue_info(Config, 0, [online]),
@@ -817,7 +819,9 @@ recover(Config) ->
 
     ct:pal("recover: running stop start for permutation ~w", [Servers]),
     [rabbit_ct_broker_helpers:stop_node(Config, S) || S <- Servers],
-    [rabbit_ct_broker_helpers:start_node(Config, S) || S <- lists:reverse(Servers)],
+    [rabbit_ct_broker_helpers:async_start_node(Config, S) || S <- lists:reverse(Servers)],
+    [ok = rabbit_ct_broker_helpers:wait_for_async_start_node(S) || S <- lists:reverse(Servers)],
+
     ct:pal("recover: running stop waiting for messages ~w", [Servers]),
     check_leader_and_replicas(Config, Servers0),
     quorum_queue_utils:wait_for_messages(Config, [[Q, <<"1">>, <<"1">>, <<"0">>]], 60),
@@ -828,7 +832,10 @@ recover(Config) ->
 
     ct:pal("recover: running app stop start for permuation ~w", [Servers1]),
     [rabbit_control_helper:command(stop_app, S) || S <- Servers1],
-    [rabbit_control_helper:command(start_app, S) || S <- lists:reverse(Servers1)],
+    [rabbit_control_helper:async_command(start_app, S, [], [])
+     || S <- lists:reverse(Servers1)],
+    [rabbit_control_helper:wait_for_async_command(S) || S <- lists:reverse(Servers1)],
+
     ct:pal("recover: running app stop waiting for messages ~w", [Servers1]),
     check_leader_and_replicas(Config, Servers0),
     quorum_queue_utils:wait_for_messages(Config, [[Q, <<"1">>, <<"1">>, <<"0">>]], 60),
@@ -852,7 +859,9 @@ restart_coordinator_without_queues(Config) ->
     ?assertMatch(#'queue.delete_ok'{}, amqp_channel:call(Ch, #'queue.delete'{queue = Q})),
 
     [rabbit_ct_broker_helpers:stop_node(Config, S) || S <- Servers0],
-    [rabbit_ct_broker_helpers:start_node(Config, S) || S <- lists:reverse(Servers0)],
+    [rabbit_ct_broker_helpers:async_start_node(Config, S) || S <- lists:reverse(tl(Servers0))],
+    [rabbit_ct_broker_helpers:wait_for_async_start_node(S) || S <- lists:reverse(tl(Servers0))],
+    rabbit_ct_broker_helpers:start_node(Config, hd(Servers0)),
 
     Ch1 = rabbit_ct_client_helpers:open_channel(Config, Server),
     ?assertEqual({'queue.declare_ok', Q, 0, 0},
@@ -1863,7 +1872,7 @@ leader_failover_dedupe(Config) ->
                  declare(Ch1, Q, [{<<"x-queue-type">>, longstr, <<"stream">>}])),
 
     check_leader_and_replicas(Config, Nodes),
-
+    timer:sleep(5000),
     Ch2 = rabbit_ct_client_helpers:open_channel(Config, PubNode),
     #'confirm.select_ok'{} = amqp_channel:call(Ch2, #'confirm.select'{}),
 

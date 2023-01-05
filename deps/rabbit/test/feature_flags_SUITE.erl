@@ -889,7 +889,9 @@ do_enable_feature_flag_when_ff_file_is_unwritable(Config) ->
     %% the `rabbit_ff_controller' process because it was pretty fragile.
     %% That's why the rest of the testcase is commentted out now. We should
     %% revisit this at some point.
-    [?assertEqual(ok, rabbit_ct_broker_helpers:start_node(Config, N))
+    [?assertEqual(ok, rabbit_ct_broker_helpers:async_start_node(Config, N))
+     || N <- lists:reverse(Nodes)],
+    [?assertEqual(ok, rabbit_ct_broker_helpers:wait_for_async_start_node(N))
      || N <- lists:reverse(Nodes)].
 
     % XXX ?assertEqual(
