@@ -660,7 +660,7 @@ exists_in_mnesia(QName) ->
     ets:member(?MNESIA_TABLE, QName).
 
 exists_in_khepri(QName) ->
-    rabbit_khepri:exists(khepri_queue_path(QName)).
+    ets:member(rabbit_khepri_queue, QName).
 
 %% -------------------------------------------------------------------
 %% exists().

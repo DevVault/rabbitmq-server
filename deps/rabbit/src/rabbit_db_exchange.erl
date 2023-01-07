@@ -179,10 +179,9 @@ get_in_mnesia(Name) ->
     rabbit_mnesia:dirty_read({?MNESIA_TABLE, Name}).
 
 get_in_khepri(Name) ->
-    Path = khepri_exchange_path(Name),
-    case rabbit_khepri:get(Path) of
-        {ok, X} -> {ok, X};
-        _ -> {error, not_found}
+    case ets:lookup(rabbit_khepri_exchange, Name) of
+        [X] -> {ok, X};
+        []  -> {error, not_found}
     end.
 
 %% -------------------------------------------------------------------
@@ -225,12 +224,7 @@ get_many_in_mnesia(Table, Names) when is_list(Names) ->
     lists:append([ets:lookup(Table, Name) || Name <- Names]).
 
 get_many_in_khepri(Names) when is_list(Names) ->
-    lists:foldl(fun(Name, Acc) ->
-                        case get_in_khepri(Name) of
-                            {ok, X} -> [X | Acc];
-                            _ -> Acc
-                        end
-                end, [], Names).
+    lists:append([ets:lookup(rabbit_khepri_exchange, Name) || Name <- Names]).
 
 %% -------------------------------------------------------------------
 %% count().

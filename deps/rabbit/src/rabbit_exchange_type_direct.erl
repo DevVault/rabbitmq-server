@@ -38,7 +38,7 @@ route(#exchange{name = Name, type = Type},
             rabbit_db_binding:match_routing_key(Name, Routes, true);
         _ ->
             rabbit_db_binding:match_routing_key(Name, Routes, false)
-    end.
+        end.
 
 validate(_X) -> ok.
 validate_binding(_X, _B) -> ok.

@@ -226,8 +226,7 @@ exists_in_mnesia(VHostName) ->
     mnesia:dirty_read({?MNESIA_TABLE, VHostName}) /= [].
 
 exists_in_khepri(VHostName) ->
-    Path = khepri_vhost_path(VHostName),
-    rabbit_khepri:exists(Path).
+    ets:member(rabbit_khepri_vhost, VHostName).
 
 %% -------------------------------------------------------------------
 %% get().
@@ -255,10 +254,9 @@ get_in_mnesia(VHostName) ->
     end.
 
 get_in_khepri(VHostName) ->
-    Path = khepri_vhost_path(VHostName),
-    case rabbit_khepri:get(Path) of
-        {ok, Record} -> Record;
-        _            -> undefined
+    case ets:lookup(rabbit_khepri_vhost, VHostName) of
+        [Record] -> Record;
+        _        -> undefined
     end.
 
 %% -------------------------------------------------------------------
@@ -282,11 +280,7 @@ get_all_in_mnesia() ->
     mnesia:dirty_match_object(?MNESIA_TABLE, vhost:pattern_match_all()).
 
 get_all_in_khepri() ->
-    Path = khepri_vhosts_path(),
-    case rabbit_khepri:list(Path) of
-        {ok, VHosts} -> maps:values(VHosts);
-        _            -> []
-    end.
+    ets:tab2list(rabbit_khepri_vhost).
 
 %% -------------------------------------------------------------------
 %% list().
@@ -309,11 +303,7 @@ list_in_mnesia() ->
     mnesia:dirty_all_keys(?MNESIA_TABLE).
 
 list_in_khepri() ->
-    Path = khepri_vhosts_path(),
-    case rabbit_khepri:list_child_nodes(Path) of
-        {ok, Result} -> Result;
-        _            -> []
-    end.
+    ets:select(rabbit_khepri_vhost, [{vhost:pattern_match_names(), [], ['$1']}]).
 
 %% -------------------------------------------------------------------
 %% update_in_*tx().

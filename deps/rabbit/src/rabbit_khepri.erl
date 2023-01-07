@@ -12,6 +12,7 @@
 
 -include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/logging.hrl").
+-include_lib("rabbit_common/include/rabbit.hrl").
 
 -export([setup/0,
          setup/1,
@@ -105,6 +106,7 @@ setup(_) ->
                        friendly_name => ?RA_FRIENDLY_NAME},
     case khepri:start(?RA_SYSTEM, RaServerConfig) of
         {ok, ?STORE_ID} ->
+            register_projections(),
             ?LOG_DEBUG(
                "Khepri-based " ?RA_FRIENDLY_NAME " ready",
                #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
@@ -586,3 +588,137 @@ use_khepri() ->
     %rabbit_log:notice("~s: ~p", [?FUNCTION_NAME, Ret]),
     Ret.
 -endif.
+
+register_projections() ->
+    RegisterFuns = [fun register_rabbit_exchange_projection/0,
+                    fun register_rabbit_queue_projection/0,
+                    fun register_rabbit_vhost_projection/0,
+                    fun register_rabbit_users_projection/0,
+                    fun register_rabbit_user_permissions_projection/0,
+                    fun register_rabbit_bindings_projection/0,
+                    fun register_rabbit_index_route_projection/0],
+    [case RegisterFun() of
+         ok              -> ok;
+         {error, exists} -> ok;
+         {error, Error}  -> throw(Error)
+     end || RegisterFun <- RegisterFuns],
+    ok.
+
+register_rabbit_exchange_projection() ->
+    Name = rabbit_khepri_exchange,
+    PathPattern = [rabbit_db_exchange,
+                   exchanges,
+                   _VHost = ?KHEPRI_WILDCARD_STAR,
+                   _Name = ?KHEPRI_WILDCARD_STAR],
+    KeyPos = #exchange.name,
+    register_simple_projection(Name, PathPattern, KeyPos).
+
+register_rabbit_queue_projection() ->
+    Name = rabbit_khepri_queue,
+    PathPattern = [rabbit_db_queue,
+                   queues,
+                   _VHost = ?KHEPRI_WILDCARD_STAR,
+                   _Name = ?KHEPRI_WILDCARD_STAR],
+    KeyPos = 2, %% #amqqueue.name
+    register_simple_projection(Name, PathPattern, KeyPos).
+
+register_rabbit_vhost_projection() ->
+    Name = rabbit_khepri_vhost,
+    PathPattern = [rabbit_db_vhost, _VHost = ?KHEPRI_WILDCARD_STAR],
+    KeyPos = 2, %% #vhost.virtual_host
+    register_simple_projection(Name, PathPattern, KeyPos).
+
+register_rabbit_users_projection() ->
+    Name = rabbit_khepri_users,
+    PathPattern = [rabbit_db_user,
+                   users,
+                   _UserName = ?KHEPRI_WILDCARD_STAR],
+    KeyPos = 2, %% #internal_user.username
+    register_simple_projection(Name, PathPattern, KeyPos).
+
+register_rabbit_user_permissions_projection() ->
+    Name = rabbit_khepri_user_permissions,
+    PathPattern = [rabbit_db_user,
+                   users,
+                   _UserName = ?KHEPRI_WILDCARD_STAR,
+                   user_permissions,
+                   _VHost = ?KHEPRI_WILDCARD_STAR],
+    KeyPos = #user_permission.user_vhost,
+    register_simple_projection(Name, PathPattern, KeyPos).
+
+register_simple_projection(Name, PathPattern, KeyPos) ->
+    Options = #{keypos => KeyPos},
+    Fun = fun(_Path, Resource) -> Resource end,
+    Projection = khepri_projection:new(Name, Fun, Options),
+    khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
+
+register_rabbit_bindings_projection() ->
+    MapFun = fun(_Path, Binding) ->
+                     Binding
+             end,
+    ProjectionFun = projection_fun_for_sets(MapFun),
+    Options = #{type => bag, keypos => #binding.source},
+    Projection = khepri_projection:new(
+                   rabbit_khepri_bindings, ProjectionFun, Options),
+    PathPattern = [rabbit_db_binding,
+                   routes,
+                   _VHost = ?KHEPRI_WILDCARD_STAR,
+                   _ExchangeName = ?KHEPRI_WILDCARD_STAR,
+                   _Kind = ?KHEPRI_WILDCARD_STAR,
+                   _DstName = ?KHEPRI_WILDCARD_STAR,
+                   _RoutingKey = ?KHEPRI_WILDCARD_STAR],
+    khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
+
+register_rabbit_index_route_projection() ->
+    MapFun = fun(Path, _) ->
+                     [rabbit_db_binding, routes, VHost, ExchangeName, Kind, DstName,
+                      RoutingKey] = Path,
+                     Exchange = rabbit_misc:r(VHost, exchange, ExchangeName),
+                     Destination = rabbit_misc:r(VHost, Kind, DstName),
+                     SourceKey = {Exchange, RoutingKey},
+                     #index_route{source_key = SourceKey,
+                                  destination = Destination}
+             end,
+    ProjectionFun = projection_fun_for_sets(MapFun),
+    Options = #{type => bag, keypos => #index_route.source_key},
+    Projection = khepri_projection:new(
+                   rabbit_khepri_index_route, ProjectionFun, Options),
+    PathPattern = [rabbit_db_binding,
+                   routes,
+                   _VHost = ?KHEPRI_WILDCARD_STAR,
+                   _ExchangeName = ?KHEPRI_WILDCARD_STAR,
+                   _Kind = ?KHEPRI_WILDCARD_STAR,
+                   _DstName = ?KHEPRI_WILDCARD_STAR,
+                   _RoutingKey = ?KHEPRI_WILDCARD_STAR],
+    khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
+
+%% Routing information is stored in the Khepri store as a `set'.
+%% In order to turn these bindings into records in an ETS `bag', we use a
+%% `khepri_projection:extended_projection_fun()' to determine the changes
+%% `khepri_projection' should apply to the ETS table using set algebra.
+projection_fun_for_sets(MapFun) ->
+    fun (_Table, _Path, undefined, undefined) ->
+            ok;
+        (Table, Path, undefined, NewPayload0) ->
+            NewPayload = maps:get(data, NewPayload0, sets:new()),
+            ets:insert(Table, [MapFun(Path, Element) ||
+                               Element <- sets:to_list(NewPayload)]);
+
+        (Table, Path, OldPayload0, undefined) ->
+            OldPayload = maps:get(data, OldPayload0, sets:new()),
+            sets:fold(
+              fun(Element, _Acc) ->
+                      ets:delete_object(Table, MapFun(Path, Element))
+              end, [], OldPayload);
+        (Table, Path, OldPayload0, NewPayload0) ->
+            NewPayload = maps:get(data, NewPayload0, sets:new()),
+            OldPayload = maps:get(data, OldPayload0, sets:new()),
+            Deletions = sets:subtract(OldPayload, NewPayload),
+            Creations = sets:subtract(NewPayload, OldPayload),
+            sets:fold(
+              fun(Element, _Acc) ->
+                      ets:delete_object(Table, MapFun(Path, Element))
+              end, [], Deletions),
+            ets:insert(Table, [MapFun(Path, Element) ||
+                               Element <- sets:to_list(Creations)])
+    end.

@@ -157,10 +157,9 @@ get_in_mnesia(Username) ->
     end.
 
 get_in_khepri(Username) ->
-    Path = khepri_user_path(Username),
-    case rabbit_khepri:get(Path) of
-        {ok, User} -> User;
-        _          -> undefined
+    case ets:lookup(rabbit_khepri_users, Username) of
+        [User] -> {ok, User};
+        _      -> {error, not_found}
     end.
 
 %% -------------------------------------------------------------------
@@ -263,10 +262,11 @@ get_user_permissions_in_mnesia(Username, VHostName) ->
     end.
 
 get_user_permissions_in_khepri(Username, VHostName) ->
-    Path = khepri_user_permission_path(Username, VHostName),
-    case rabbit_khepri:get(Path) of
-        {ok, UserPermission} -> UserPermission;
-        _ -> undefined
+    UserVHost = #user_vhost{username     = Username,
+                            virtual_host = VHostName},
+    case ets:lookup(rabbit_khepri_user_permissions, UserVHost) of
+        [UserPermission] -> UserPermission;
+        _      -> undefined
     end.
 
 %% -------------------------------------------------------------------
