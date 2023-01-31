@@ -654,10 +654,10 @@ register_simple_projection(Name, PathPattern, KeyPos) ->
 
 register_rabbit_bindings_projection() ->
     MapFun = fun(_Path, Binding) ->
-                     Binding
+                     #route{binding = Binding}
              end,
     ProjectionFun = projection_fun_for_sets(MapFun),
-    Options = #{type => bag, keypos => #binding.source},
+    Options = #{keypos => #route.binding},
     Projection = khepri_projection:new(
                    rabbit_khepri_bindings, ProjectionFun, Options),
     PathPattern = [rabbit_db_binding,

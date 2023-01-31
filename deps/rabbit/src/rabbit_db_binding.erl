@@ -431,10 +431,11 @@ get_all_in_mnesia(VHost) ->
     [B || #route{binding = B} <- rabbit_db:list_in_mnesia(?MNESIA_TABLE, Match)].
 
 get_all_in_khepri(VHost) ->
-    Path = khepri_routes_path() ++ [VHost, rabbit_khepri:if_has_data_wildcard()],
-    lists:foldl(fun(SetOfBindings, Acc) ->
-                        sets:to_list(SetOfBindings) ++ Acc
-                end, [], rabbit_db:list_in_khepri(Path)).
+    VHostResource = rabbit_misc:r(VHost, '_'),
+    Match = #route{binding = #binding{source      = VHostResource,
+                                      destination = VHostResource,
+                                      _           = '_'}},
+    [B || #route{binding = B} <- ets:match_object(rabbit_khepri_bindings, Match)].
 
 -spec get_all(Src, Dst, Reverse) -> [Binding] when
       Src :: rabbit_types:binding_source(),
@@ -462,10 +463,10 @@ get_all_in_mnesia(SrcName, DstName, Reverse) ->
     mnesia:async_dirty(Fun).
 
 get_all_in_khepri(SrcName, DstName) ->
-    Match = #binding{source      = SrcName,
-                     destination = DstName,
-                     _           = '_'},
-    ets:match_object(rabbit_khepri_bindings, Match).
+    MatchHead = #route{binding = #binding{source      = SrcName,
+                                          destination = DstName,
+                                          _           = '_'}},
+    [B || #route{binding = B} <- ets:match_object(rabbit_khepri_bindings, MatchHead)].
 
 %% -------------------------------------------------------------------
 %% get_all_for_source().
@@ -504,7 +505,8 @@ list_for_route(Route, true) ->
     end.
 
 get_all_for_source_in_khepri(Resource) ->
-    ets:lookup(rabbit_khepri_bindings, Resource).
+    Route = #route{binding = #binding{source = Resource, _ = '_'}},
+    [B || #route{binding = B} <- ets:match_object(rabbit_khepri_bindings, Route)].
 
 %% -------------------------------------------------------------------
 %% get_all_for_destination().
@@ -533,10 +535,10 @@ get_all_for_destination_in_mnesia(Dst) ->
     mnesia:async_dirty(Fun).
 
 get_all_for_destination_in_khepri(Destination) ->
-     %% TODO: projection for bindings indexed by destination?
-    Match = #binding{destination = Destination,
-                     _           = '_'},
-    ets:match_object(rabbit_khepri_bindings, Match).
+    %% TODO: projection for bindings indexed by destination?
+    Match = #route{binding = #binding{destination = Destination,
+                                      _           = '_'}},
+    [B || #route{binding = B} <- ets:match_object(rabbit_khepri_bindings, Match)].
 
 %% -------------------------------------------------------------------
 %% fold().
@@ -609,8 +611,10 @@ match_in_mnesia(SrcName, Match) ->
                  Routes, Match(Binding)].
 
 match_in_khepri(SrcName, Match) ->
-    Routes = ets:lookup(rabbit_khepri_bindings, SrcName),
-    [Dest || Binding = #binding{destination = Dest} <-
+    MatchHead = #route{binding = #binding{source      = SrcName,
+                                          _           = '_'}},
+    Routes = ets:select(rabbit_khepri_bindings, [{MatchHead, [], [['$_']]}]),
+    [Dest || [#route{binding = Binding = #binding{destination = Dest}}] <-
                  Routes, Match(Binding)].
 
 %% Routing - HOT CODE PATH
