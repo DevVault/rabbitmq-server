@@ -697,22 +697,8 @@ register_rabbit_index_route_projection() ->
 %% `khepri_projection:extended_projection_fun()' to determine the changes
 %% `khepri_projection' should apply to the ETS table using set algebra.
 projection_fun_for_sets(MapFun) ->
-    fun (_Table, _Path, undefined, undefined) ->
-            ok;
-        (Table, Path, undefined, NewPayload0) ->
-            NewPayload = maps:get(data, NewPayload0, sets:new()),
-            ets:insert(Table, [MapFun(Path, Element) ||
-                               Element <- sets:to_list(NewPayload)]);
-
-        (Table, Path, OldPayload0, undefined) ->
-            OldPayload = maps:get(data, OldPayload0, sets:new()),
-            sets:fold(
-              fun(Element, _Acc) ->
-                      ets:delete_object(Table, MapFun(Path, Element))
-              end, [], OldPayload);
-        (Table, Path, OldPayload0, NewPayload0) ->
-            NewPayload = maps:get(data, NewPayload0, sets:new()),
-            OldPayload = maps:get(data, OldPayload0, sets:new()),
+    fun
+        (Table, Path, #{data := OldPayload}, #{data := NewPayload}) ->
             Deletions = sets:subtract(OldPayload, NewPayload),
             Creations = sets:subtract(NewPayload, OldPayload),
             sets:fold(
@@ -720,5 +706,16 @@ projection_fun_for_sets(MapFun) ->
                       ets:delete_object(Table, MapFun(Path, Element))
               end, [], Deletions),
             ets:insert(Table, [MapFun(Path, Element) ||
-                               Element <- sets:to_list(Creations)])
+                               Element <- sets:to_list(Creations)]);
+        (Table, Path, _OldProps, #{data := NewPayload}) ->
+            ets:insert(Table, [MapFun(Path, Element) ||
+                               Element <- sets:to_list(NewPayload)]);
+
+        (Table, Path, #{data := OldPayload}, _NewProps) ->
+            sets:fold(
+              fun(Element, _Acc) ->
+                      ets:delete_object(Table, MapFun(Path, Element))
+              end, [], OldPayload);
+        (_Table, _Path, _OldProps, _NewProps) ->
+            ok
     end.
