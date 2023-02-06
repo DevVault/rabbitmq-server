@@ -1,0 +1,382 @@
+load("@rules_erlang//:erlang_bytecode2.bzl", "erlang_bytecode", "erlc_opts")
+load("@rules_erlang//:erlang_app.bzl", "erlang_app")
+
+erlc_opts(
+    name = "erlc_opts",
+    values = select({
+        "@rules_erlang//:debug_build": [
+            "+debug_info",
+            "+warn_export_vars",
+            "+warnings_as_errors",
+        ],
+        "//conditions:default": [
+            "+debug_info",
+            "+deterministic",
+            "+warn_export_vars",
+            "+warnings_as_errors",
+        ],
+    }),
+    visibility = [":__subpackages__"],
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_beam",
+    srcs = ["src/khepri.erl"],
+    outs = ["ebin/khepri.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_bang.hrl",
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_ret.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_adv_beam",
+    srcs = ["src/khepri_adv.erl"],
+    outs = ["ebin/khepri_adv.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_ret.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_app_beam",
+    srcs = ["src/khepri_app.erl"],
+    outs = ["ebin/khepri_app.beam"],
+    hdrs = [
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_cluster_beam",
+    srcs = ["src/khepri_cluster.erl"],
+    outs = ["ebin/khepri_cluster.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_condition_beam",
+    srcs = ["src/khepri_condition.erl"],
+    outs = ["ebin/khepri_condition.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_event_handler_beam",
+    srcs = ["src/khepri_event_handler.erl"],
+    outs = ["ebin/khepri_event_handler.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_evf_beam",
+    srcs = ["src/khepri_evf.erl"],
+    outs = ["ebin/khepri_evf.beam"],
+    hdrs = ["src/khepri_evf.hrl"],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_export_erlang_beam",
+    srcs = ["src/khepri_export_erlang.erl"],
+    outs = ["ebin/khepri_export_erlang.beam"],
+    app_name = "khepri",
+    beam = ["ebin/khepri_import_export.beam"],
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_fun_beam",
+    srcs = ["src/khepri_fun.erl"],
+    outs = ["ebin/khepri_fun.beam"],
+    hdrs = ["src/khepri_fun.hrl"],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_import_export_beam",
+    srcs = ["src/khepri_import_export.erl"],
+    outs = ["ebin/khepri_import_export.beam"],
+    hdrs = [
+        "src/khepri_cluster.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_machine_beam",
+    srcs = ["src/khepri_machine.erl"],
+    outs = ["ebin/khepri_machine.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_evf.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+        "src/khepri_projection.hrl",
+        "src/khepri_ret.hrl",
+        "src/khepri_tx.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+    deps = ["@ra//:erlang_app"],
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_path_beam",
+    srcs = ["src/khepri_path.erl"],
+    outs = ["ebin/khepri_path.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_error.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_payload_beam",
+    srcs = ["src/khepri_payload.erl"],
+    outs = ["ebin/khepri_payload.beam"],
+    hdrs = [
+        "src/khepri_error.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_payload.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_projection_beam",
+    srcs = ["src/khepri_projection.erl"],
+    outs = ["ebin/khepri_projection.beam"],
+    hdrs = [
+        "src/khepri_fun.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+        "src/khepri_projection.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_sproc_beam",
+    srcs = ["src/khepri_sproc.erl"],
+    outs = ["ebin/khepri_sproc.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_tx.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_sup_beam",
+    srcs = ["src/khepri_sup.erl"],
+    outs = ["ebin/khepri_sup.beam"],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_tx_beam",
+    srcs = ["src/khepri_tx.erl"],
+    outs = ["ebin/khepri_tx.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+        "src/khepri_ret.hrl",
+        "src/khepri_tx.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_tx_adv_beam",
+    srcs = ["src/khepri_tx_adv.erl"],
+    outs = ["ebin/khepri_tx_adv.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+        "src/khepri_ret.hrl",
+        "src/khepri_tx.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
+    name = "ebin_khepri_utils_beam",
+    srcs = ["src/khepri_utils.erl"],
+    outs = ["ebin/khepri_utils.beam"],
+    hdrs = [
+        "include/khepri.hrl",
+        "src/khepri_error.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+filegroup(
+    name = "beam_files",
+    srcs = [
+        "ebin/khepri.beam",
+        "ebin/khepri_adv.beam",
+        "ebin/khepri_app.beam",
+        "ebin/khepri_cluster.beam",
+        "ebin/khepri_condition.beam",
+        "ebin/khepri_event_handler.beam",
+        "ebin/khepri_evf.beam",
+        "ebin/khepri_export_erlang.beam",
+        "ebin/khepri_fun.beam",
+        "ebin/khepri_import_export.beam",
+        "ebin/khepri_machine.beam",
+        "ebin/khepri_path.beam",
+        "ebin/khepri_payload.beam",
+        "ebin/khepri_projection.beam",
+        "ebin/khepri_sproc.beam",
+        "ebin/khepri_sup.beam",
+        "ebin/khepri_tx.beam",
+        "ebin/khepri_tx_adv.beam",
+        "ebin/khepri_utils.beam",
+    ],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = [
+        "src/khepri.app.src",
+        "src/khepri.erl",
+        "src/khepri_adv.erl",
+        "src/khepri_app.erl",
+        "src/khepri_cluster.erl",
+        "src/khepri_condition.erl",
+        "src/khepri_event_handler.erl",
+        "src/khepri_evf.erl",
+        "src/khepri_export_erlang.erl",
+        "src/khepri_fun.erl",
+        "src/khepri_import_export.erl",
+        "src/khepri_machine.erl",
+        "src/khepri_path.erl",
+        "src/khepri_payload.erl",
+        "src/khepri_projection.erl",
+        "src/khepri_sproc.erl",
+        "src/khepri_sup.erl",
+        "src/khepri_tx.erl",
+        "src/khepri_tx_adv.erl",
+        "src/khepri_utils.erl",
+    ],
+)
+
+filegroup(
+    name = "private_hdrs",
+    srcs = [
+        "src/khepri_bang.hrl",
+        "src/khepri_cluster.hrl",
+        "src/khepri_error.hrl",
+        "src/khepri_evf.hrl",
+        "src/khepri_fun.hrl",
+        "src/khepri_machine.hrl",
+        "src/khepri_payload.hrl",
+        "src/khepri_projection.hrl",
+        "src/khepri_ret.hrl",
+        "src/khepri_tx.hrl",
+    ],
+)
+
+filegroup(
+    name = "public_hdrs",
+    srcs = ["include/khepri.hrl"],
+)
+
+filegroup(
+    name = "priv",
+    srcs = [],
+)
+
+filegroup(
+    name = "licenses",
+    srcs = [],
+)
+
+filegroup(
+    name = "public_and_private_hdrs",
+    srcs = [
+        ":private_hdrs",
+        ":public_hdrs",
+    ],
+)
+
+filegroup(
+    name = "all_srcs",
+    srcs = [
+        ":public_and_private_hdrs",
+        ":srcs",
+    ],
+)
+
+erlang_app(
+    name = "erlang_app",
+    srcs = [":all_srcs"],
+    hdrs = [":public_hdrs"],
+    app_name = "khepri",
+    beam_files = [":beam_files"],
+    extra_apps = ["compiler"],
+    deps = ["@ra//:erlang_app"],
+)
+
+alias(
+    name = "khepri",
+    actual = ":erlang_app",
+    visibility = ["//visibility:public"],
+)

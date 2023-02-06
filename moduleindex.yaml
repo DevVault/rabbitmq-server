@@ -314,6 +314,26 @@ jose:
 - jose_jws_alg_rsa_pkcs1_v1_5
 - jose_jws_alg_rsa_pss
 - jose_jwt
+khepri:
+- khepri
+- khepri_adv
+- khepri_app
+- khepri_cluster
+- khepri_condition
+- khepri_event_handler
+- khepri_evf
+- khepri_export_erlang
+- khepri_fun
+- khepri_import_export
+- khepri_machine
+- khepri_path
+- khepri_payload
+- khepri_projection
+- khepri_sproc
+- khepri_sup
+- khepri_tx
+- khepri_tx_adv
+- khepri_utils
 meck:
 - meck
 - meck_args_matcher
