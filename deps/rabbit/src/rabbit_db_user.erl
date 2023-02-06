@@ -158,8 +158,8 @@ get_in_mnesia(Username) ->
 
 get_in_khepri(Username) ->
     case ets:lookup(rabbit_khepri_users, Username) of
-        [User] -> {ok, User};
-        _      -> {error, not_found}
+        [User] -> User;
+        _      -> undefined
     end.
 
 %% -------------------------------------------------------------------

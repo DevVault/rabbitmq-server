@@ -1136,6 +1136,16 @@ rabbitmq_integration_suite(
     ],
 )
 
+rabbitmq_integration_suite(
+    name = "metadata_store_clustering_SUITE",
+    size = "small",
+)
+
+rabbitmq_integration_suite(
+    name = "metadata_store_phase1_SUITE",
+    size = "small",
+)
+
 assert_suites()
 
 filegroup(
