@@ -77,6 +77,8 @@
 -define(MNESIA_TABLE, rabbit_queue).
 -define(MNESIA_DURABLE_TABLE, rabbit_durable_queue).
 
+-define(KHEPRI_PROJECTION, rabbit_khepri_queue).
+
 %% -------------------------------------------------------------------
 %% get_all().
 %% -------------------------------------------------------------------
@@ -105,7 +107,7 @@ get_all_in_mnesia() ->
 get_all_in_khepri() ->
     list_with_possible_retry_in_khepri(
       fun() ->
-              rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()])
+              ets:tab2list(?KHEPRI_PROJECTION)
       end).
 
 -spec get_all(VHostName) -> [Queue] when
@@ -134,7 +136,8 @@ get_all_in_mnesia(VHostName) ->
 get_all_in_khepri(VHostName) ->
     list_with_possible_retry_in_khepri(
       fun() ->
-              rabbit_db:list_in_khepri(khepri_queues_path() ++ [VHostName, rabbit_khepri:if_has_data_wildcard()])
+              Pattern = amqqueue:pattern_match_on_name(rabbit_misc:r(VHostName, queue)),
+              ets:match_object(?KHEPRI_PROJECTION, Pattern)
       end).
 
 %% -------------------------------------------------------------------
@@ -165,7 +168,7 @@ get_all_durable_in_mnesia() ->
 get_all_durable_in_khepri() ->
     list_with_possible_retry_in_khepri(
       fun() ->
-              rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()])
+              ets:tab2list(?KHEPRI_PROJECTION)
       end).
 
 -spec get_all_durable_by_type(Type) -> [Queue] when
@@ -190,7 +193,7 @@ get_all_durable_by_type_in_mnesia(Type) ->
 
 get_all_durable_by_type_in_khepri(Type) ->
     Pattern = amqqueue:pattern_match_on_type(Type),
-    rabbit_db:list_in_khepri(khepri_queues_path() ++ [rabbit_khepri:if_has_data([?KHEPRI_WILDCARD_STAR_STAR, #if_data_matches{pattern = Pattern}])]).
+    ets:match_object(?KHEPRI_PROJECTION, Pattern).
 
 %% -------------------------------------------------------------------
 %% filter_all_durable().
@@ -221,17 +224,14 @@ filter_all_durable_in_mnesia(FilterFun) ->
       end).
 
 filter_all_durable_in_khepri(FilterFun) ->
-    Path = khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()],
-    {ok, Res} = rabbit_khepri:fold(
-                  Path,
-                  fun(_, #{data := Q}, Acc0) ->
-                          case FilterFun(Q) of
-                              true -> [Q | Acc0];
-                              false -> Acc0
-                          end
-                  end,
-                  []),
-    Res.
+    ets:foldl(
+      fun(Q, Acc0) ->
+              case FilterFun(Q) of
+                  true -> [Q | Acc0];
+                  false -> Acc0
+              end
+      end,
+      [], ?KHEPRI_PROJECTION).
 
 %% -------------------------------------------------------------------
 %% list().
@@ -256,12 +256,8 @@ list_in_mnesia() ->
     mnesia:dirty_all_keys(?MNESIA_TABLE).
 
 list_in_khepri() ->
-    case rabbit_khepri:match(khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()]) of
-        {ok, Map} ->
-            maps:fold(fun(_K, Q, Acc) -> [amqqueue:get_name(Q) | Acc] end, [], Map);
-        _ ->
-            []
-    end.
+    Pattern = amqqueue:pattern_match_on_name('$1'),
+    ets:select(?KHEPRI_PROJECTION, [{Pattern, [], ['$1']}]).
 
 %% -------------------------------------------------------------------
 %% count().
@@ -286,7 +282,7 @@ count_in_mnesia() ->
     mnesia:table_info(?MNESIA_TABLE, size).
 
 count_in_khepri() ->
-    rabbit_khepri:count_children(khepri_queues_path() ++ [?KHEPRI_WILDCARD_STAR]).
+    ets:info(?KHEPRI_PROJECTION, size).
 
 -spec count(VHostName) -> Count when
       VHostName :: vhost:name(),
@@ -327,10 +323,8 @@ list_for_count_in_mnesia(VHostName) ->
       end).
 
 list_for_count_in_khepri(VHostName) ->
-    list_with_possible_retry_in_khepri(
-      fun() ->
-              rabbit_khepri:count_children(khepri_queues_path() ++ [VHostName])
-      end).
+    Pattern = amqqueue:pattern_match_on_name(rabbit_misc:r(VHostName, queue)),
+    ets:select_count(?KHEPRI_PROJECTION, [{Pattern, [], [true]}]).
 
 %% -------------------------------------------------------------------
 %% delete().
@@ -426,20 +420,18 @@ get_many(Names) when is_list(Names) ->
         khepri => fun() -> get_many_in_khepri(Names) end
        }).
 
-get_many_in_mnesia(Table, [Name]) ->
-    ets:lookup(Table, Name);
-get_many_in_mnesia(Table, Names) when is_list(Names) ->
+get_many_in_mnesia(Table, Names) ->
     %% Normally we'd call mnesia:dirty_read/1 here, but that is quite
     %% expensive for reasons explained in rabbit_mnesia:dirty_read/1.
-    lists:append([ets:lookup(Table, Name) || Name <- Names]).
+    get_many_in_ets(Table, Names).
 
 get_many_in_khepri(Names) when is_list(Names) ->
-    lists:foldl(fun(Name, Acc) ->
-                        case get_in_khepri(Name) of
-                            {ok, X} -> [X | Acc];
-                            _ -> Acc
-                        end
-                end, [], Names).
+    get_many_in_ets(?KHEPRI_PROJECTION, Names).
+
+get_many_in_ets(Table, [Name]) ->
+    ets:lookup(Table, Name);
+get_many_in_ets(Table, Names) when is_list(Names) ->
+    lists:append([ets:lookup(Table, Name) || Name <- Names]).
 
 %% -------------------------------------------------------------------
 %% get().
@@ -660,7 +652,7 @@ exists_in_mnesia(QName) ->
     ets:member(?MNESIA_TABLE, QName).
 
 exists_in_khepri(QName) ->
-    ets:member(rabbit_khepri_queue, QName).
+    ets:member(?KHEPRI_PROJECTION, QName).
 
 %% -------------------------------------------------------------------
 %% exists().
