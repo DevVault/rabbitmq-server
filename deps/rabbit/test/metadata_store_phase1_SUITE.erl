@@ -199,7 +199,7 @@ setup_khepri(Config) ->
     Config.
 
 setup_code_mocking(Config) ->
-    %% Bypass rabbit_misc:execute_mnesia_transaction/1 (no worker_pool
+    %% Bypass rabbit_mnesia:execute_mnesia_transaction/1 (no worker_pool
     %% configured in particular) but keep the behavior of throwing the error.
     meck:new(rabbit_misc, [passthrough, no_link]),
     meck:expect(
@@ -2656,7 +2656,7 @@ list_vhost_records(khepri) ->
     lists:sort(rabbit_vhost:all_in_khepri()).
 
 update_vhost(mnesia, VHostName, Fun) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               rabbit_vhost:update_in_mnesia(VHostName, Fun)
       end);
@@ -2664,7 +2664,7 @@ update_vhost(khepri, VHostName, Fun) ->
     rabbit_vhost:update_in_khepri(VHostName, Fun).
 
 update_vhost(mnesia, VHostName, Description, Tags) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               rabbit_vhost:update_in_mnesia(VHostName, Description, Tags)
       end);
@@ -2677,7 +2677,7 @@ vhost_info(khepri, VHostName) ->
     rabbit_vhost:info_in_khepri(VHostName).
 
 delete_vhost(mnesia, VHostName) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               Fun = rabbit_vhost:with_in_mnesia(
                       VHostName,

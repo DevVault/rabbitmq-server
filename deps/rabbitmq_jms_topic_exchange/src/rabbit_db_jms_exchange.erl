@@ -69,7 +69,7 @@ create_or_update(XName, BindingKeyAndFun, ErrorFun) ->
        }).
 
 create_or_update_in_mnesia(XName, BindingKeyAndFun, ErrorFun) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               #?JMS_TOPIC_RECORD{x_selector_funs = BindingFuns} =
                   read_state_in_mnesia(XName, ErrorFun),
@@ -105,7 +105,7 @@ insert(XName, BFuns) ->
        }).
 
 insert_in_mnesia(XName, BFuns) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               write_state_fun_in_mnesia(XName, BFuns)
       end).
@@ -155,7 +155,7 @@ delete(XName) ->
        }).
 
 delete_in_mnesia(XName) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() -> mnesia:delete(?JMS_TOPIC_TABLE, XName, write) end).
 
 delete_in_khepri(XName) ->
@@ -170,7 +170,7 @@ delete(XName, BindingKeys, ErrorFun) ->
        }).
 
 delete_in_mnesia(XName, BindingKeys, ErrorFun) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               #?JMS_TOPIC_RECORD{x_selector_funs = BindingFuns} =
                   read_state_in_mnesia(XName, ErrorFun),

@@ -68,7 +68,7 @@ get(XName) ->
        }).
 
 get_in_mnesia(XName) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() -> get_in_mnesia_tx(XName) end).
 
 get_in_khepri(XName) ->
@@ -99,7 +99,7 @@ insert(XName, Message, Length) ->
        }).
 
 insert_in_mnesia(XName, Message, Length) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun () ->
               Cached = get_in_mnesia_tx(XName),
               insert_in_mnesia(XName, Cached, Message, Length)
@@ -167,7 +167,7 @@ delete(XName) ->
        }).
 
 delete_in_mnesia(XName) ->
-    rabbit_misc:execute_mnesia_transaction(
+    rabbit_mnesia:execute_mnesia_transaction(
       fun() ->
               mnesia:delete(?RH_TABLE, XName, write)
       end).
@@ -225,4 +225,3 @@ khepri_recent_history_path() ->
 
 khepri_recent_history_path(#resource{virtual_host = VHost, name = Name}) ->
     [?MODULE, recent_history_exchange, VHost, Name].
->>>>>>> 7b61c2e402 (Khepri: The One Commit)
