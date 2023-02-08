@@ -553,7 +553,7 @@ remove_all_slaves_in_khepri(QName, PendingSlavePids) ->
               %% ensure old incarnations are stopped using
               %% the pending mirror pids.
               Q3 = amqqueue:set_slave_pids_pending_shutdown(Q2, PendingSlavePids),
-              rabbit_mirror_queue_misc:store_updated_slaves_in_khepri(Q3, Decorators)
+              store_updated_slaves_in_khepri(Q3, Decorators)
       end, rw).
 
 %%----------------------------------------------------------------------------
