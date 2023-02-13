@@ -22,7 +22,8 @@ all() ->
 
 groups() ->
     [
-     {all_tests, [], all_tests()}
+     {all_tests, [], all_tests()},
+     {benchmarks, [], benchmarks()}
     ].
 
 all_tests() ->
@@ -35,6 +36,11 @@ all_tests() ->
      build_key_from_deletion_events,
      build_key_from_binding_deletion_event,
      build_multiple_key_from_deletion_events
+    ].
+
+benchmarks() ->
+    [
+     match_benchmark
     ].
 
 init_per_suite(Config) ->
@@ -270,6 +276,83 @@ build_multiple_key_from_deletion_events1(Config) ->
        RKs,
        lists:sort([RK || {_, RK} <- rabbit_db_topic_exchange:trie_records_to_key(Records)])),
     passed.
+
+%% ---------------------------------------------------------------------------
+%% Benchmarks
+%% ---------------------------------------------------------------------------
+
+match_benchmark(Config) ->
+    %% run the benchmark with Mnesia first
+    MnesiaResults = rabbit_ct_broker_helpers:rpc(Config, 0, ?MODULE, match_benchmark1, [Config]),
+
+    %% migrate to Khepri
+    Servers = rabbit_ct_broker_helpers:get_node_configs(Config, nodename),
+    {T, ok} = timer:tc(fun() ->
+                               rabbit_ct_broker_helpers:enable_feature_flag(Config, Servers, raft_based_metadata_store_phase1)
+                       end),
+    ct:pal("~p: time to migrate to Khepri: ~.2fs", [?FUNCTION_NAME, T/1000000]),
+
+    %% run the same same benchmark with Khepri enabled
+    KhepriResults = rabbit_ct_broker_helpers:rpc(Config, 0, ?MODULE, match_benchmark1, [Config]),
+
+    %% print all the results first
+    maps:foreach(fun(Test, KhepriResult) ->
+                      MnesiaResult = maps:get(Test, MnesiaResults),
+                      ct:pal("~p: Test: ~p, Mnesia: ~.2fus, Khepri: ~.2fus", [?FUNCTION_NAME, Test, MnesiaResult, KhepriResult])
+              end, KhepriResults),
+
+    %% fail the test if needed
+    maps:foreach(fun(Test, KhepriResult) ->
+                      MnesiaResult = maps:get(Test, MnesiaResults),
+                      ?assert(KhepriResult < MnesiaResult * 1.5, "Khepri can't be significantly slower than Mnesia")
+              end, KhepriResults).
+
+match_benchmark1(_Config) ->
+    Src = rabbit_misc:r(?VHOST, exchange, <<"test-exchange">>),
+    Dst1 = rabbit_misc:r(?VHOST, queue, <<"test-queue1">>),
+    Dst2 = rabbit_misc:r(?VHOST, queue, <<"test-queue2">>),
+    Dst3 = rabbit_misc:r(?VHOST, queue, <<"test-queue3">>),
+    Dst4 = rabbit_misc:r(?VHOST, queue, <<"test-queue4">>),
+    Dst5 = rabbit_misc:r(?VHOST, queue, <<"test-queue5">>),
+    Dst6 = rabbit_misc:r(?VHOST, queue, <<"test-queue6">>),
+
+    SimpleTopics = [list_to_binary("a.b." ++ integer_to_list(N)) || N <- lists:seq(1,1000)],
+    Bindings = [#binding{source = Src, key = RoutingKey, destination = Dst1, args = #{}} || RoutingKey <- SimpleTopics],
+    BindingRes = [rabbit_db_topic_exchange:set(Binding) || Binding <- Bindings],
+    ?assertMatch([ok], lists:uniq(BindingRes)),
+    ok = rabbit_db_topic_exchange:set(#binding{source = Src, key = <<"a.b.*">>, destination = Dst2, args = #{}}),
+    ok = rabbit_db_topic_exchange:set(#binding{source = Src, key = <<"a.b.*">>, destination = Dst3, args = #{}}),
+    ok = rabbit_db_topic_exchange:set(#binding{source = Src, key = <<"a.#">>, destination = Dst4, args = #{}}),
+    ok = rabbit_db_topic_exchange:set(#binding{source = Src, key = <<"*.b.42">>, destination = Dst5, args = #{}}),
+    ok = rabbit_db_topic_exchange:set(#binding{source = Src, key = <<"#">>, destination = Dst6, args = #{}}),
+
+    {Tany, _} = timer:tc(fun() ->
+                              [rabbit_db_topic_exchange:match(Src, <<"foo">>) || _ <- lists:seq(1, 100)]
+                      end),
+    ?assertMatch([Dst6], rabbit_db_topic_exchange:match(Src, <<"foo">>)),
+
+    {Tbar, _} = timer:tc(fun() ->
+                              [rabbit_db_topic_exchange:match(Src, <<"a.b.bar">>) || _ <- lists:seq(1, 100)]
+                      end),
+    ?assertEqual(lists:sort([Dst2,Dst3,Dst4,Dst6]), lists:sort(rabbit_db_topic_exchange:match(Src, <<"a.b.bar">>))),
+
+    {Tbaz, _} = timer:tc(fun() ->
+                              [rabbit_db_topic_exchange:match(Src, <<"baz.b.42">>) || _ <- lists:seq(1, 100)]
+                      end),
+    ?assertEqual(lists:sort([Dst5,Dst6]), lists:sort(rabbit_db_topic_exchange:match(Src, <<"baz.b.42">>))),
+
+    {Tsimple, Rsimple} = timer:tc(fun() ->
+                                          [rabbit_db_topic_exchange:match(Src, RoutingKey)
+                                           || RoutingKey <- SimpleTopics, RoutingKey =/= <<"a.b.123">>]
+                                  end),
+    ?assertEqual([Dst1,Dst2,Dst3,Dst4,Dst6], lists:sort(lists:uniq(hd(Rsimple)))),
+
+    #{
+      "average time to match `foo`" => Tany/100,
+      "average time to match `a.b.bar`" => Tbar/100,
+      "average time to match `baz.b.42`" => Tbaz/100,
+      "average time to match a simple topic" => Tsimple/length(SimpleTopics)
+     }.
 
 subscribe_to_mnesia_changes([Table | Rest]) ->
     case mnesia:subscribe({table, Table, detailed}) of
