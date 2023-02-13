@@ -596,7 +596,8 @@ register_projections() ->
                     fun register_rabbit_users_projection/0,
                     fun register_rabbit_user_permissions_projection/0,
                     fun register_rabbit_bindings_projection/0,
-                    fun register_rabbit_index_route_projection/0],
+                    fun register_rabbit_index_route_projection/0,
+                    fun register_rabbit_topic_graph_projection/0],
     [case RegisterFun() of
          ok              -> ok;
          {error, exists} -> ok;
@@ -717,5 +718,81 @@ projection_fun_for_sets(MapFun) ->
                       ets:delete_object(Table, MapFun(Path, Element))
               end, [], OldPayload);
         (_Table, _Path, _OldProps, _NewProps) ->
+            ok
+    end.
+
+register_rabbit_topic_graph_projection() ->
+    Name = rabbit_khepri_topic_trie,
+    Options = #{keypos => #topic_trie_edge.trie_edge},
+    ProjectionFun =
+    fun (Table, Path, #{data := _OldBindings}, #{data := NewBindings}) ->
+            [BindingEdge | _RestEdges] = edges_for_path(Path, NewBindings),
+            ets:insert(Table, BindingEdge);
+        (Table, Path, _OldProps, #{data := NewBindings}) ->
+            Edges = edges_for_path(Path, NewBindings),
+            ets:insert(Table, Edges);
+        (Table, Path, #{data := OldBindings}, _NewProps) ->
+            [BindingEdge | RestEdges] = edges_for_path(Path, OldBindings),
+            ets:delete_object(Table, BindingEdge),
+            trim_while_out_degree_is_zero(RestEdges);
+        (_Table, _Path, _OldProps, _NewProps) ->
+            ok
+    end,
+    Projection = khepri_projection:new(Name, ProjectionFun, Options),
+    PathPattern = [rabbit_db_topic_exchange,
+                   topic_trie_binding,
+                   _VHost = ?KHEPRI_WILDCARD_STAR,
+                   _ExchangeName = ?KHEPRI_WILDCARD_STAR,
+                   _Routes = ?KHEPRI_WILDCARD_STAR_STAR],
+    khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
+
+edges_for_path(
+  [rabbit_db_topic_exchange, topic_trie_binding,
+   VHost, ExchangeName | Components],
+  Bindings) ->
+    Exchange = rabbit_misc:r(VHost, exchange, ExchangeName),
+    edges_for_path([root | Components], Bindings, Exchange, []).
+
+edges_for_path([FromNodeId, To | Rest], Bindings, Exchange, Edges) ->
+    ToNodeId = [To | FromNodeId],
+    Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
+                                                   node_id =       FromNodeId,
+                                                   word =          To},
+                            node_id = ToNodeId},
+    edges_for_path([ToNodeId | Rest], Bindings, Exchange, [Edge | Edges]);
+edges_for_path([LeafId], Bindings, Exchange, Edges) ->
+    ToNodeId = {bindings, Bindings},
+    Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
+                                                   node_id =       LeafId,
+                                                   word =          bindings},
+                            node_id = ToNodeId},
+    [Edge | Edges].
+
+-spec trim_while_out_degree_is_zero(Edges) -> ok
+    when
+      Edges :: [Edge],
+      Edge :: #topic_trie_edge{}.
+
+trim_while_out_degree_is_zero([]) ->
+    ok;
+trim_while_out_degree_is_zero([Edge | Rest]) ->
+    #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
+                                            node_id       = _FromNodeId},
+                     node_id = ToNodeId} = Edge,
+    OutEdgePattern = #topic_trie_edge{trie_edge =
+                                      #trie_edge{exchange_name = Exchange,
+                                                 node_id       = ToNodeId,
+                                                 word          = '_'},
+                                      node_id = '_'},
+    case ets:match(rabbit_khepri_topic_trie, OutEdgePattern, 1) of
+        '$end_of_table' ->
+            %% If the ToNode has an out degree of zero, trim the edge to
+            %% the node, effectively erasing ToNode.
+            ets:delete_object(rabbit_khepri_topic_trie, Edge),
+            trim_while_out_degree_is_zero(Rest);
+        {_Match, _Continuation} ->
+            %% Return after finding the first node with a non-zero out-degree.
+            %% If a node has a non-zero out-degree then all of its ancestors
+            %% must as well.
             ok
     end.

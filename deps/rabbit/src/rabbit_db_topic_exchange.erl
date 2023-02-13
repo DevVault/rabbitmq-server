@@ -37,13 +37,6 @@
 -define(MNESIA_EDGE_TABLE, rabbit_topic_trie_edge).
 -define(MNESIA_BINDING_TABLE, rabbit_topic_trie_binding).
 
--define(HASH, <<"#">>).
--define(STAR, <<"*">>).
--define(DOT, <<"\\.">>).
--define(ONE_WORD, <<"[^.]+">>).
--define(ANYTHING, <<".*">>).
--define(ZERO_OR_MORE, <<"(\\..+)?">>).
-
 %% -------------------------------------------------------------------
 %% set().
 %% -------------------------------------------------------------------
@@ -197,23 +190,8 @@ match_in_mnesia(XName, RoutingKey) ->
     mnesia:async_dirty(fun trie_match/2, [XName, Words]).
 
 match_in_khepri(XName, RoutingKey) ->
-    Root = khepri_exchange_type_topic_path(XName) ++ [rabbit_khepri:if_has_data_wildcard()],
-    case rabbit_khepri:fold(
-           Root,
-           fun(Path0, #{data := Set}, Acc) ->
-                   Path = lists:nthtail(4, Path0),
-                   case is_re_topic_match(Path, RoutingKey) of
-                       true ->
-                           Bindings = sets:to_list(Set),
-                           [maps:get(destination, B) || B <- Bindings] ++ Acc;
-                       false ->
-                           Acc
-                   end
-           end,
-           []) of
-        {ok, List} -> List;
-        _ -> []
-    end.
+    Words = split_topic_key_binary(RoutingKey),
+    trie_match_in_khepri(XName, Words).
 
 %% --------------------------------------------------------------
 %% Migration
@@ -590,51 +568,6 @@ split_topic_key_binary(Key) ->
     Words = split_topic_key(Key, [], []),
     [list_to_binary(W) || W <- Words].
 
-is_re_topic_match([?HASH], _) ->
-    true;
-is_re_topic_match([A], A) ->
-    true;
-is_re_topic_match([], <<>>) ->
-    true;
-is_re_topic_match([], _) ->
-    false;
-is_re_topic_match(Path00, RoutingKey) ->
-    Path0 = path_to_re(Path00),
-    Path = << <<B/binary >> || B <- Path0 >>,
-    case Path of
-        ?ANYTHING -> true;
-        _ ->
-            RE = <<$^,Path/binary,$$>>,
-            case re:run(RoutingKey, RE, [{capture, none}]) of
-                nomatch -> false;
-                _ -> true
-            end
-    end.
-
-path_to_re([?STAR | Rest]) ->
-    path_to_re(Rest, [?ONE_WORD]);
-path_to_re([?HASH | Rest]) ->
-    path_to_re(Rest, [?ANYTHING]);
-path_to_re([Bin | Rest]) ->
-    path_to_re(Rest, [Bin]).
-
-path_to_re([], Acc) ->
-    lists:reverse(Acc);
-path_to_re([?STAR | Rest], [?ANYTHING | _] = Acc) ->
-    path_to_re(Rest, [?ONE_WORD | Acc]);
-path_to_re([?STAR | Rest], Acc) ->
-    path_to_re(Rest, [?ONE_WORD, ?DOT | Acc]);
-path_to_re([?HASH | Rest], [?HASH | _] = Acc) ->
-    path_to_re(Rest, Acc);
-path_to_re([?HASH | Rest], [?ANYTHING | _] = Acc) ->
-    path_to_re(Rest, Acc);
-path_to_re([?HASH | Rest], Acc) ->
-    path_to_re(Rest, [?ZERO_OR_MORE | Acc]);
-path_to_re([Bin | Rest], [?ANYTHING | _] = Acc) ->
-    path_to_re(Rest, [Bin | Acc]);
-path_to_re([Bin | Rest], Acc) ->
-    path_to_re(Rest, [Bin, ?DOT | Acc]).
-
 ensure_topic_deletion_ets() ->
     Tab = rabbit_db_topic_exchange_delete_table,
     case ets:whereis(Tab) of
@@ -652,3 +585,55 @@ ensure_topic_migration_ets() ->
         Tid ->
             Tid
     end.
+
+%% Khepri topic graph
+
+trie_match_in_khepri(X, Words) ->
+    trie_match_in_khepri(X, root, Words, []).
+
+trie_match_in_khepri(X, Node, [], ResAcc) ->
+    trie_match_part_in_khepri(
+      X, Node, <<"#">>, fun trie_match_skip_any_in_khepri/4, [],
+      trie_bindings_in_khepri(X, Node) ++ ResAcc);
+trie_match_in_khepri(X, Node, [W | RestW] = Words, ResAcc) ->
+    lists:foldl(fun ({WArg, MatchFun, RestWArg}, Acc) ->
+                        trie_match_part_in_khepri(
+                          X, Node, WArg, MatchFun, RestWArg, Acc)
+                end, ResAcc, [{W, fun trie_match_in_khepri/4, RestW},
+                              {<<"*">>, fun trie_match_in_khepri/4, RestW},
+                              {<<"#">>,
+                               fun trie_match_skip_any_in_khepri/4, Words}]).
+
+trie_match_part_in_khepri(X, Node, Search, MatchFun, RestW, ResAcc) ->
+    case trie_child_in_khepri(X, Node, Search) of
+        {ok, NextNode} -> MatchFun(X, NextNode, RestW, ResAcc);
+        error          -> ResAcc
+    end.
+
+trie_match_skip_any_in_khepri(X, Node, [], ResAcc) ->
+    trie_match_in_khepri(X, Node, [], ResAcc);
+trie_match_skip_any_in_khepri(X, Node, [_ | RestW] = Words, ResAcc) ->
+    trie_match_skip_any_in_khepri(
+      X, Node, RestW,
+      trie_match_in_khepri(X, Node, Words, ResAcc)).
+
+trie_child_in_khepri(X, Node, Word) ->
+    case ets:lookup(rabbit_khepri_topic_trie,
+                    #trie_edge{exchange_name = X,
+                               node_id       = Node,
+                               word          = Word}) of
+        [#topic_trie_edge{node_id = NextNode}] -> {ok, NextNode};
+        []                                     -> error
+    end.
+
+trie_bindings_in_khepri(X, Node) ->
+    case ets:lookup(rabbit_khepri_topic_trie,
+                    #trie_edge{exchange_name = X,
+                               node_id       = Node,
+                               word          = bindings}) of
+        [#topic_trie_edge{node_id = {bindings, Bindings}}] ->
+            [Dest || #{destination := Dest} <- sets:to_list(Bindings)];
+        [] ->
+            []
+    end.
+
