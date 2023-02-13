@@ -41,6 +41,36 @@
 %% for testing
 -export([clear/0]).
 
+-ifdef(TEST).
+-export([get_in_mnesia/1,
+         get_in_khepri/1,
+         create_in_mnesia/2,
+         create_in_khepri/2,
+         get_all_in_mnesia/0,
+         get_all_in_khepri/0,
+         update_in_mnesia/2,
+         update_in_khepri/2,
+         delete_in_mnesia/1,
+         delete_in_khepri/1,
+         get_user_permissions_in_mnesia/2,
+         get_user_permissions_in_khepri/2,
+         set_user_permissions_in_mnesia/3,
+         set_user_permissions_in_khepri/3,
+         set_topic_permissions_in_mnesia/3,
+         set_topic_permissions_in_khepri/3,
+         match_user_permissions_in_mnesia/2,
+         match_user_permissions_in_khepri/2,
+         clear_user_permissions_in_mnesia/2,
+         clear_user_permissions_in_khepri/2,
+         get_topic_permissions_in_mnesia/3,
+         get_topic_permissions_in_khepri/3,
+         match_topic_permissions_in_mnesia/3,
+         match_topic_permissions_in_khepri/3,
+         clear_topic_permissions_in_mnesia/3,
+         clear_topic_permissions_in_khepri/3
+        ]).
+-endif.
+
 -define(MNESIA_TABLE, rabbit_user).
 -define(PERM_MNESIA_TABLE, rabbit_user_permission).
 -define(TOPIC_PERM_MNESIA_TABLE, rabbit_topic_permission).
@@ -334,7 +364,12 @@ match_user_permissions_in_mnesia_tx(Username, VHostName) ->
 
 match_user_permissions_in_khepri('_' = _Username, '_' = _VHostName) ->
     Path = khepri_user_permission_path(?KHEPRI_WILDCARD_STAR, ?KHEPRI_WILDCARD_STAR),
-    rabbit_khepri:match(Path);
+    case rabbit_khepri:match(Path) of
+        {ok, Map} ->
+            maps:values(Map);
+        _ ->
+            []
+    end;
 match_user_permissions_in_khepri('_' = _Username, VHostName) ->
     rabbit_khepri:transaction(
         rabbit_db_vhost:with_fun_in_khepri_tx(
@@ -916,7 +951,11 @@ delete_topic_permission_in_mnesia_tx(Username, VHostName, ExchangeName) ->
 
 delete_in_khepri(Username) ->
     Path = khepri_user_path(Username),
-    rabbit_khepri:delete(Path).
+    case rabbit_khepri:delete_or_fail(Path) of
+        ok -> true;
+        {error, {node_not_found, _}} -> false;
+        _ -> false
+    end.
 
 user_permission_pattern(Username, VHostName) ->
     #user_permission{user_vhost = #user_vhost{

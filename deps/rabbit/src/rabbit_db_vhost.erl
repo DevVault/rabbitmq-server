@@ -36,6 +36,26 @@
 %% For testing
 -export([clear/0]).
 
+-ifdef(TEST).
+-export([create_or_get_in_mnesia/2,
+         create_or_get_in_khepri/2,
+         get_in_mnesia/1,
+         get_in_khepri/1,
+         exists_in_mnesia/1,
+         exists_in_khepri/1,
+         list_in_mnesia/0,
+         list_in_khepri/0,
+         get_all_in_mnesia/0,
+         get_all_in_khepri/0,
+         update_in_mnesia/2,
+         update_in_khepri/2,
+         merge_metadata_in_mnesia/2,
+         merge_metadata_in_khepri/2,
+         delete_in_mnesia/1,
+         delete_in_khepri/1
+        ]).
+-endif.
+
 -define(MNESIA_TABLE, rabbit_vhost).
 
 %% -------------------------------------------------------------------
