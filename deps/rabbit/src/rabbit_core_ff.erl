@@ -203,12 +203,8 @@ mds_phase1_migration_post_enable(#{feature_name := FeatureName}) ->
     rabbit_db:set_migration_flag(FeatureName).
 
 mds_migration_enable(FeatureName, TablesAndOwners) ->
-    case ensure_khepri_cluster_matches_mnesia(FeatureName) of
-        ok ->
-            migrate_tables_to_khepri(FeatureName, TablesAndOwners);
-        Error ->
-            Error
-    end.
+    ok = ensure_khepri_cluster_matches_mnesia(FeatureName),
+    migrate_tables_to_khepri(FeatureName, TablesAndOwners).
 
 mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     ?assert(rabbit_khepri:is_enabled(non_blocking)),
@@ -229,16 +225,7 @@ ensure_khepri_cluster_matches_mnesia(FeatureName) ->
        "Feature flag `~s`:   updating the Khepri cluster to match "
        "the Mnesia cluster",
        [FeatureName]),
-    case expand_khepri_cluster(FeatureName, AllMnesiaNodes) of
-        ok ->
-            ok;
-        Error ->
-            ?LOG_ERROR(
-               "Feature flag `~s`:   failed to migrate from Mnesia "
-               "to Khepri: failed to create Khepri cluster: ~p",
-               [FeatureName, Error]),
-            Error
-    end.
+    expand_khepri_cluster(FeatureName, AllMnesiaNodes).
 
 expand_khepri_cluster(FeatureName, AllMnesiaNodes) ->
     %% All Mnesia nodes are running (this is a requirement to enable this
