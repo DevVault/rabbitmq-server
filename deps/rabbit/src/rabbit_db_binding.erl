@@ -777,11 +777,8 @@ delete_all_for_exchange_in_khepri(X = #exchange{name = XName}, OnlyDurable, Remo
 delete_for_source_in_khepri(#resource{virtual_host = VHost, name = Name}) ->
     Path = khepri_routes_path() ++ [VHost, Name],
     {ok, Bindings} = khepri_tx:get_many(Path ++ [rabbit_khepri:if_has_data_wildcard()]),
-    %% ok = khepri_tx:delete(Path),
-    maps:fold(fun(P, Set, Acc) ->
-                      %% TODO projections are not updated if we just use the previous
-                      %% delete of the root path. Let's keep it like this for now...
-                      ok = khepri_tx:delete(P),
+    ok = khepri_tx:delete(Path),
+    maps:fold(fun(_P, Set, Acc) ->
                       sets:to_list(Set) ++ Acc
               end, [], Bindings).
 

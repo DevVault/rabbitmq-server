@@ -82,6 +82,7 @@ erlang_bytecode(
         "include/khepri.hrl",
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
+        "src/khepri_tree.hrl",
     ],
     app_name = "khepri",
     erlc_opts = "//:erlc_opts",
@@ -95,6 +96,7 @@ erlang_bytecode(
         "include/khepri.hrl",
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
+        "src/khepri_tree.hrl",
     ],
     app_name = "khepri",
     erlc_opts = "//:erlc_opts",
@@ -135,6 +137,7 @@ erlang_bytecode(
         "src/khepri_cluster.hrl",
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
+        "src/khepri_tree.hrl",
     ],
     app_name = "khepri",
     erlc_opts = "//:erlc_opts",
@@ -154,6 +157,7 @@ erlang_bytecode(
         "src/khepri_payload.hrl",
         "src/khepri_projection.hrl",
         "src/khepri_ret.hrl",
+        "src/khepri_tree.hrl",
         "src/khepri_tx.hrl",
     ],
     app_name = "khepri",
@@ -195,6 +199,7 @@ erlang_bytecode(
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
         "src/khepri_projection.hrl",
+        "src/khepri_tree.hrl",
     ],
     app_name = "khepri",
     erlc_opts = "//:erlc_opts",
@@ -232,6 +237,7 @@ erlang_bytecode(
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
         "src/khepri_ret.hrl",
+        "src/khepri_tree.hrl",
         "src/khepri_tx.hrl",
     ],
     app_name = "khepri",
@@ -249,6 +255,7 @@ erlang_bytecode(
         "src/khepri_machine.hrl",
         "src/khepri_payload.hrl",
         "src/khepri_ret.hrl",
+        "src/khepri_tree.hrl",
         "src/khepri_tx.hrl",
     ],
     app_name = "khepri",
@@ -330,6 +337,7 @@ filegroup(
         "src/khepri_payload.hrl",
         "src/khepri_projection.hrl",
         "src/khepri_ret.hrl",
+        "src/khepri_tree.hrl",
         "src/khepri_tx.hrl",
     ],
 )
@@ -346,7 +354,10 @@ filegroup(
 
 filegroup(
     name = "licenses",
-    srcs = [],
+    srcs = [
+        "LICENSE-Apache-2.0",
+        "LICENSE-MPL-2.0",
+    ],
 )
 
 filegroup(
