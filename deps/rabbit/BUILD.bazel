@@ -592,6 +592,10 @@ rabbitmq_integration_suite(
     name = "per_vhost_connection_limit_SUITE",
     size = "medium",
     flaky = True,
+    shard_count = 10,
+    additional_beam = [
+        ":cluster_rename_SUITE_beam_files",
+    ],
 )
 
 rabbitmq_integration_suite(
@@ -645,7 +649,7 @@ rabbitmq_integration_suite(
 rabbitmq_integration_suite(
     name = "queue_master_location_SUITE",
     size = "large",
-    shard_count = 2,
+    shard_count = 3,
 )
 
 rabbitmq_integration_suite(

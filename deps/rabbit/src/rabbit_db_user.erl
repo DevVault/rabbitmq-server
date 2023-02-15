@@ -447,7 +447,7 @@ set_user_permissions_in_khepri(Username, VHostName, UserPermission) ->
           VHostName,
           fun() ->
                   set_user_permissions_in_khepri_tx(Username, VHostName, UserPermission)
-          end))).
+          end)), rw).
 
 set_user_permissions_in_khepri_tx(Username, VHostName, UserPermission) ->
     Path = khepri_user_permission_path(
@@ -782,7 +782,7 @@ set_topic_permissions_in_khepri(Username, VHostName, TopicPermission) ->
           VHostName,
           fun() ->
                   set_topic_permissions_in_khepri_tx(Username, VHostName, TopicPermission)
-          end))).
+          end)), rw).
 
 set_topic_permissions_in_khepri_tx(Username, VHostName, TopicPermission) ->
     #topic_permission{topic_permission_key =

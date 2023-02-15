@@ -124,7 +124,7 @@ recover_mnesia_tables() ->
     %% the feature flag. See rabbit_core_ff:final_sync_from_mnesia_to_khepri/2
     %% Unlock them here as mnesia is still fully functional.
     Tables = [Table || {Table, _} <- rabbit_table:definitions()],
-    [mnesia:change_table_access_mode(Table, read_write) || Table <- Tables],
+    _ = [mnesia:change_table_access_mode(Table, read_write) || Table <- Tables],
     ok.
 
 init_in_khepri() ->

@@ -318,11 +318,13 @@ update_in_khepri(XName, Fun) ->
                     ok;
                 {error, {khepri, mismatching_node, _}} ->
                     update_in_khepri(XName, Fun);
+                {error, {khepri, node_not_found, _}} ->
+                    ok;
                 {error, _} = Error ->
                     Error
             end;
         {error, {khepri, node_not_found, _}} ->
-            not_found;
+            ok;
         {error, _} = Error ->
             Error
     end.
@@ -499,7 +501,7 @@ next_serial_in_mnesia_tx(XName) ->
                       #exchange_serial{name = XName, next = Serial + 1}, write),
     Serial.
 
-next_serial_in_khepri(#exchange{name = XName} = X) ->
+next_serial_in_khepri(XName) ->
     %% Just storing the serial number is enough, no need to keep #exchange_serial{}
     Path = khepri_exchange_serial_path(XName),
     Ret1 = rabbit_khepri:adv_get(Path),
@@ -513,7 +515,7 @@ next_serial_in_khepri(#exchange{name = XName} = X) ->
                 ok ->
                     Serial;
                 {error, {khepri, mismatching_node, _}} ->
-                    next_serial_in_khepri(X);
+                    next_serial_in_khepri(XName);
                 Err ->
                     Err
             end;
@@ -612,7 +614,7 @@ delete_in_khepri(XName, IfUnused) ->
                   {ok, X} -> DeletionFun(X, false);
                   _ -> {error, not_found}
               end
-      end).
+      end, rw).
 
 conditional_delete_in_khepri(X = #exchange{name = XName}, OnlyDurable) ->
     case rabbit_db_binding:has_for_source_in_khepri(XName) of

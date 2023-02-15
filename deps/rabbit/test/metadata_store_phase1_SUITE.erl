@@ -86,7 +86,6 @@ groups() ->
        write_non_existing_vhost,
        write_existing_vhost,
        check_vhost_exists,
-       get_existing_vhost_info,
        list_vhost_names,
        list_vhost_objects,
        update_non_existing_vhost,
@@ -1577,27 +1576,39 @@ delete_vhost_and_check_resource_access(_) ->
      ?with(?assertEqual(
               true,
               delete_vhost(_With, VHostName))),
-     ?with(?assertNot(
-              check_vhost_access(_With, Username, VHostName))),
-     ?with(?assertNot(
-              check_resource_access(
-                _With, Username, VHostName, "my-resource", configure))),
      ?with(check_storage(
              _With,
              [{mnesia, rabbit_vhost, []},
               {mnesia, rabbit_user, [User]},
-              {mnesia, rabbit_user_permission, []},
+              {mnesia, rabbit_user_permission, [UserPermission]},
               {khepri, [rabbit_db_vhost],
                #{}},
               {khepri, [rabbit_db_user],
                #{?user_path(Username) => User}}]))
     ],
 
+    %% In mnesia the permissions have to be deleted explicitly
+    %% Khepri permissions have a condition to automatically delete them
+    %% when the vhost is deleted
+    MnesiaTests =
+        [?with(?assert(
+                  check_vhost_access(_With, Username, VHostName))),
+         ?with(?assert(
+                  check_resource_access(
+                    _With, Username, VHostName, "my-resource", configure)))],
+
+    KhepriTests =
+        [?with(?assertNot(
+                  check_vhost_access(_With, Username, VHostName))),
+         ?with(?assertNot(
+                  check_resource_access(
+                    _With, Username, VHostName, "my-resource", configure)))],
+
     ?assertEqual(
        ok,
        eunit:test(
-         [{setup, fun force_mnesia_use/0, [{with, mnesia, Tests}]},
-          {setup, fun force_khepri_use/0, [{with, khepri, Tests}]}],
+         [{setup, fun force_mnesia_use/0, [{with, mnesia, Tests ++ MnesiaTests}]},
+          {setup, fun force_khepri_use/0, [{with, khepri, Tests ++ KhepriTests}]}],
          [verbose])).
 
 %%
@@ -2514,29 +2525,45 @@ delete_vhost_and_check_topic_access(_) ->
                 Context#{routing_key => <<"something-else">>}))),
      ?with(?assert(
               delete_vhost(_With, VHostName))),
-     ?with(?assert(
-              check_topic_access(
-                _With, Username, VHostName, Exchange, read, Context))),
-     ?with(?assert(
-              check_topic_access(
-                _With, Username, VHostName, Exchange, read,
-                Context#{routing_key => <<"something-else">>}))),
      ?with(check_storage(
              _With,
              [{mnesia, rabbit_vhost, []},
               {mnesia, rabbit_user, [User]},
-              {mnesia, rabbit_topic_permission, []},
+              {mnesia, rabbit_topic_permission, [TopicPermission]},
               {khepri, [rabbit_db_vhost],
                #{}},
               {khepri, [rabbit_db_user],
                #{?user_path(Username) => User}}]))
     ],
 
+    %% In mnesia the permissions have to be deleted explicitly
+    %% Khepri permissions have a condition to automatically delete them
+    %% when the vhost is deleted
+    MnesiaTests = 
+        [?with(?assert(
+                  check_topic_access(
+                    _With, Username, VHostName, Exchange, read, Context))),
+         ?with(?assertNot(
+                  check_topic_access(
+                    _With, Username, VHostName, Exchange, read,
+                    Context#{routing_key => <<"something-else">>})))],
+
+    KhepriTests = 
+        [?with(?assertEqual(
+                  undefined,
+                  check_topic_access(
+                    _With, Username, VHostName, Exchange, read, Context))),
+         ?with(?assertEqual(
+                  undefined,
+                  check_topic_access(
+                    _With, Username, VHostName, Exchange, read,
+                    Context#{routing_key => <<"something-else">>})))],
+    
     ?assertEqual(
        ok,
        eunit:test(
-         [{setup, fun force_mnesia_use/0, [{with, mnesia, Tests}]},
-          {setup, fun force_khepri_use/0, [{with, khepri, Tests}]}],
+         [{setup, fun force_mnesia_use/0, [{with, mnesia, Tests ++ MnesiaTests}]},
+          {setup, fun force_khepri_use/0, [{with, khepri, Tests ++ KhepriTests}]}],
          [verbose])).
 
 %% -------------------------------------------------------------------

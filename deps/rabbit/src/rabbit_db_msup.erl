@@ -326,9 +326,9 @@ khepri_delete(Path) ->
 mnesia_write_to_khepri(?TABLE, Specs) ->
     rabbit_khepri:transaction(
       fun() ->
-              [khepri_create_tx(khepri_mirrored_supervisor_path(Group, Id),
+              [khepri_create_tx(khepri_mirrored_supervisor_path(Group, SimpleId),
                                 Spec)
-               || #mirrored_sup_childspec{key = {Group, Id}} = Spec <- Specs]
+               || #mirrored_sup_childspec{key = {Group, {SimpleId, _}}} = Spec <- Specs]
       end, rw).
 
 mnesia_delete_to_khepri(?TABLE, #mirrored_sup_childspec{key = {Group, Id}}) ->

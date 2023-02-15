@@ -221,9 +221,9 @@ init_it_in_khepri(Self, GM, Node, QName) ->
             PSPids = amqqueue:get_slave_pids_pending_shutdown(Q),
             %% TODO we can't kill processes!
             case [Pid || Pid <- [QPid | SPids], node(Pid) =:= Node] of
-                []     -> stop_pending_slaves(QName, PSPids),
+                []     -> _ = stop_pending_slaves(QName, PSPids),
                           %% TODO make add_slave_in_khepri and add_slave_in_mnesia
-                          add_slave(Q, Self, GM),
+                          _ = add_slave(Q, Self, GM),
                           {new, QPid, GMPids};
                 %% TODO is_process_alive should never go on a khepri transaction!
                 [QPid] -> case rabbit_mnesia:is_process_alive(QPid) of
@@ -236,7 +236,7 @@ init_it_in_khepri(Self, GM, Node, QName) ->
                                        SPids1 = SPids -- [SPid],
                                        Q1 = amqqueue:set_slave_pids(Q, SPids1),
                                        Q2 = amqqueue:set_gm_pids(Q1, GMPids1),
-                                       add_slave(Q2, Self, GM),
+                                       _ = add_slave(Q2, Self, GM),
                                        {new, QPid, GMPids1}
                           end
             end;

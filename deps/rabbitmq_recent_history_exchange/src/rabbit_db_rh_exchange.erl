@@ -49,11 +49,11 @@ setup_schema() ->
        }).
 
 setup_schema_in_mnesia() ->
-    mnesia:create_table(?RH_TABLE,
-                        [{attributes, record_info(fields, cached)},
-                         {record_name, cached},
-                         {type, set}]),
-    mnesia:add_table_copy(?RH_TABLE, node(), ram_copies),
+    _ = mnesia:create_table(?RH_TABLE,
+                            [{attributes, record_info(fields, cached)},
+                             {record_name, cached},
+                             {type, set}]),
+    _ = mnesia:add_table_copy(?RH_TABLE, node(), ram_copies),
     rabbit_table:wait([?RH_TABLE]),
     ok.
 

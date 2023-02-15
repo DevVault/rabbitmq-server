@@ -355,7 +355,7 @@ migrate_tables_to_khepri(FeatureName, TablesAndOwners) ->
                "Feature flag `~s`:   migration from Mnesia to Khepri "
                "finished",
                [FeatureName]),
-            rabbit_khepri:set_ready(),
+            _ = rabbit_khepri:set_ready(),
             ok;
         {'DOWN', MonitorRef, process, Pid, Info} ->
             ?LOG_ERROR(

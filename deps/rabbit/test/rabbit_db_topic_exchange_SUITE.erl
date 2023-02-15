@@ -17,11 +17,13 @@
 
 all() ->
     [
-     {group, all_tests}
+     {group, all_tests},
+     {group, mnesia_store}
     ].
 
 groups() ->
     [
+     {mnesia_store, [], mnesia_tests()},
      {all_tests, [], all_tests()},
      {benchmarks, [], benchmarks()}
     ].
@@ -31,7 +33,11 @@ all_tests() ->
      set,
      delete,
      delete_all_for_exchange,
-     match,
+     match
+    ].
+
+mnesia_tests() ->
+    [
      build_key_from_topic_trie_binding_record,
      build_key_from_deletion_events,
      build_key_from_binding_deletion_event,
@@ -50,7 +56,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     rabbit_ct_helpers:run_teardown_steps(Config).
 
+init_per_group(mnesia_store = Group, Config0) ->
+    Config = rabbit_ct_helpers:set_config(Config0, [{metadata_store, mnesia}]),
+    init_per_group_common(Group, Config);
 init_per_group(Group, Config) ->
+    init_per_group_common(Group, Config).
+
+init_per_group_common(Group, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [
         {rmq_nodename_suffix, Group},
         {rmq_nodes_count, 1}

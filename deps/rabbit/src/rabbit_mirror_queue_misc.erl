@@ -134,7 +134,7 @@ remove_from_queue_in_mnesia(QueueName, Self, DeadGMPids) ->
                               Q1 = amqqueue:set_pid(Q0, QPid1),
                               Q2 = amqqueue:set_slave_pids(Q1, SPids1),
                               Q3 = amqqueue:set_gm_pids(Q2, AliveGM),
-                              store_updated_slaves_in_mnesia(Q3),
+                              _ = store_updated_slaves_in_mnesia(Q3),
                               %% If we add and remove nodes at the
                               %% same time we might tell the old
                               %% master we need to sync and then
@@ -147,7 +147,7 @@ remove_from_queue_in_mnesia(QueueName, Self, DeadGMPids) ->
                               %% [1].
                               Q1 = amqqueue:set_slave_pids(Q0, Alive),
                               Q2 = amqqueue:set_gm_pids(Q1, AliveGM),
-                              store_updated_slaves_in_mnesia(Q2),
+                              _ = store_updated_slaves_in_mnesia(Q2),
                               {ok, QPid1, DeadPids, []}
                       end
               end
@@ -225,7 +225,7 @@ remove_from_queue_in_khepri(QueueName, Self, DeadGMPids) ->
                               Q1 = amqqueue:set_pid(Q0, QPid1),
                               Q2 = amqqueue:set_slave_pids(Q1, SPids1),
                               Q3 = amqqueue:set_gm_pids(Q2, AliveGM),
-                              store_updated_slaves_in_khepri(Q3, Decorators),
+                              _ = store_updated_slaves_in_khepri(Q3, Decorators),
                               %% If we add and remove nodes at the
                               %% same time we might tell the old
                               %% master we need to sync and then
@@ -239,7 +239,7 @@ remove_from_queue_in_khepri(QueueName, Self, DeadGMPids) ->
                               %% [1].
                               Q1 = amqqueue:set_slave_pids(Q0, Alive),
                               Q2 = amqqueue:set_gm_pids(Q1, AliveGM),
-                              store_updated_slaves_in_khepri(Q2, Decorators),
+                              _ = store_updated_slaves_in_khepri(Q2, Decorators),
                               {ok, QPid1, DeadPids, []}
                       end
               end
@@ -265,7 +265,7 @@ on_vhost_up(VHost) ->
                                    on_vhost_up_in_khepri(VHost)
                            end
                 }),
-    [add_mirror(QName, node(), async) || QName <- QNames],
+    _ = [add_mirror(QName, node(), async) || QName <- QNames],
     ok.
 
 on_vhost_up_in_mnesia(VHost) ->
@@ -469,7 +469,7 @@ store_updated_slaves_in_khepri(Q0, Decorators) ->
     %% HA queues are not supported in Khepri. This update is just enough to make
     %% some of the current tests work, which might start some HA queue.
     %% It will be removed before Khepri is released.
-    rabbit_db_queue:update_in_khepri_tx(amqqueue:get_name(Q0), fun(_) -> Q4 end),
+    _ = rabbit_db_queue:update_in_khepri_tx(amqqueue:get_name(Q0), fun(_) -> Q4 end),
     %% Wake it up so that we emit a stats event
     rabbit_amqqueue:notify_policy_changed(Q3),
     Q3.
