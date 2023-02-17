@@ -436,5 +436,7 @@ test_topic_expect_match(X, List) ->
                                                    kind = queue,
                                                    name = list_to_binary(Q)}
                               end, Expected),
-              true = (lists:usort(ExpectedRes) =:= lists:usort(Res))
+              ?assertEqual(
+                lists:usort(ExpectedRes), lists:usort(Res),
+                lists:flatten(io_lib:format("Routing key: ~w", [BinKey])))
       end, List).

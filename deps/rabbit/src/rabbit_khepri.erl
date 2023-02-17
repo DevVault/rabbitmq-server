@@ -753,6 +753,13 @@ edges_for_path(
     Exchange = rabbit_misc:r(VHost, exchange, ExchangeName),
     edges_for_path([root | Components], Bindings, Exchange, []).
 
+edges_for_path([root, <<>>], Bindings, Exchange, Edges) ->
+    ToNodeId = {bindings, Bindings},
+    Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
+                                                   node_id =       root,
+                                                   word =          bindings},
+                            node_id = ToNodeId},
+    [Edge | Edges];
 edges_for_path([FromNodeId, To | Rest], Bindings, Exchange, Edges) ->
     ToNodeId = [To | FromNodeId],
     Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,

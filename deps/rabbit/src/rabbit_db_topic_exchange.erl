@@ -190,7 +190,7 @@ match_in_mnesia(XName, RoutingKey) ->
     mnesia:async_dirty(fun trie_match/2, [XName, Words]).
 
 match_in_khepri(XName, RoutingKey) ->
-    Words = split_topic_key_binary(RoutingKey),
+    Words = [list_to_binary(W) || W <- split_topic_key(RoutingKey)],
     trie_match_in_khepri(XName, Words).
 
 %% --------------------------------------------------------------
