@@ -331,6 +331,7 @@ khepri:
 - khepri_projection
 - khepri_sproc
 - khepri_sup
+- khepri_tree
 - khepri_tx
 - khepri_tx_adv
 - khepri_utils
