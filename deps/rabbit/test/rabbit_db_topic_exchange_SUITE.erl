@@ -17,27 +17,21 @@
 
 all() ->
     [
-     {group, all_tests},
      {group, mnesia_store}
     ].
 
 groups() ->
     [
      {mnesia_store, [], mnesia_tests()},
-     {all_tests, [], all_tests()},
      {benchmarks, [], benchmarks()}
-    ].
-
-all_tests() ->
-    [
-     set,
-     delete,
-     delete_all_for_exchange,
-     match
     ].
 
 mnesia_tests() ->
     [
+     set,
+     delete,
+     delete_all_for_exchange,
+     match,
      build_key_from_topic_trie_binding_record,
      build_key_from_deletion_events,
      build_key_from_binding_deletion_event,
