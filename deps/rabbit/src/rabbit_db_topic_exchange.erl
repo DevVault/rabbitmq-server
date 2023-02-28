@@ -7,7 +7,6 @@
 
 -module(rabbit_db_topic_exchange).
 
--include_lib("khepri/include/khepri.hrl").
 -include_lib("rabbit_common/include/rabbit.hrl").
 
 -export([
@@ -62,26 +61,8 @@ set_in_mnesia(XName, RoutingKey, Destination, Args) ->
               ok
       end).
 
-set_in_khepri(XName, RoutingKey, Destination, Args) ->
-    Path = khepri_exchange_type_topic_path(XName) ++ split_topic_key_binary(RoutingKey),
-    Binding = #{destination => Destination, arguments => Args},
-    Ret1 = rabbit_khepri:adv_get(Path),
-    case Ret1 of
-        {ok, #{data := Set0, payload_version := Vsn}} ->
-            Set = sets:add_element(Binding, Set0),
-            UpdatePath = khepri_path:combine_with_conditions(
-                           Path, [#if_payload_version{version = Vsn}]),
-            Ret2 = rabbit_khepri:put(UpdatePath, Set),
-            case Ret2 of
-                ok -> ok;
-                {error, {khepri, mismatching_node, _}} ->
-                    set_in_khepri(XName, RoutingKey, Destination, Args);
-                {error, _} = Error -> Error
-            end;
-        _ ->
-            Set = sets:add_element(Binding, sets:new()),
-            rabbit_khepri:put(Path, Set)
-    end.
+set_in_khepri(_XName, _RoutingKey, _Destination, _Args) ->
+    ok.
 
 %% -------------------------------------------------------------------
 %% delete_all_for_exchange().
@@ -109,8 +90,8 @@ delete_all_for_exchange_in_mnesia(XName) ->
               ok
       end).
 
-delete_all_for_exchange_in_khepri(XName) ->
-    ok = rabbit_khepri:delete(khepri_exchange_type_topic_path(XName)).
+delete_all_for_exchange_in_khepri(_XName) ->
+    ok.
 
 %% -------------------------------------------------------------------
 %% delete().
@@ -133,29 +114,7 @@ delete_in_mnesia(Bs) ->
     rabbit_mnesia:execute_mnesia_transaction(
       fun() -> delete_in_mnesia_tx(Bs) end).
 
-delete_in_khepri(Bs) ->
-    %% Let's handle bindings data outside of the transaction for efficiency
-    Data = [begin
-                Path = khepri_exchange_type_topic_path(X) ++ split_topic_key_binary(K),
-                {Path, #{destination => D, arguments => Args}}
-            end || #binding{source = X, key = K, destination = D, args = Args} <- Bs],
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   case khepri_tx:get(Path) of
-                       {ok, undefined} ->
-                           ok;
-                       {ok, Set0} ->
-                           Set = sets:del_element(Binding, Set0),
-                           case sets:size(Set) of
-                               0 -> khepri_tx:clear_payload(Path);
-                               _ -> khepri_tx:put(Path, Set)
-                           end;
-                       _ ->
-                           ok
-                   end
-               end || {Path, Binding} <- Data]
-      end, rw),
+delete_in_khepri(_Bs) ->
     ok.
 
 %% -------------------------------------------------------------------
@@ -190,80 +149,23 @@ match_in_mnesia(XName, RoutingKey) ->
     mnesia:async_dirty(fun trie_match/2, [XName, Words]).
 
 match_in_khepri(XName, RoutingKey) ->
-    Words = [list_to_binary(W) || W <- split_topic_key(RoutingKey)],
+    Words = split_topic_key(RoutingKey),
     trie_match_in_khepri(XName, Words).
 
 %% --------------------------------------------------------------
 %% Migration
 %% --------------------------------------------------------------
 
-mnesia_write_to_khepri(rabbit_topic_trie_binding, TrieBindings0) ->
-    %% There isn't enough information to rebuild the tree as the routing key is split
-    %% along the trie tree on mnesia. But, we can query the bindings table (migrated
-    %% previosly) and migrate the entries that match this <X, D> combo.
-    %% Multiple bindings to the same exchange/destination combo need to be migrated only once.
-    %% Remove here the duplicates and use a temporary ets table to keep track of those already
-    %% migrated to really speed up things.
-    Table = ensure_topic_migration_ets(),
-    TrieBindings1 =
-        lists:uniq([{X, D} || #topic_trie_binding{trie_binding = #trie_binding{exchange_name = X,
-                                                                               destination   = D}}
-                                  <- TrieBindings0]),
-    TrieBindings = lists:filter(fun({X, D}) ->
-                                        ets:insert_new(Table, {{X, D}, empty})
-                                end, TrieBindings1),
-    ets:delete(Table),
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Values = rabbit_db_binding:match_source_and_destination_in_khepri_tx(X, D),
-                   Bindings = lists:foldl(fun(SetOfBindings, Acc) ->
-                                                  sets:to_list(SetOfBindings) ++ Acc
-                                          end, [], Values),
-                   [insert_in_khepri_tx(X, K, D, Args) || #binding{key = K,
-                                                                         args = Args} <- Bindings]
-               end || {X, D} <- TrieBindings]
-      end);
-mnesia_write_to_khepri(rabbit_topic_trie_node, _) ->
-    %% Nothing to do, the `rabbit_topic_trie_binding` is enough to perform the migration
-    %% as Khepri stores each topic binding as a single path
-    ok;
-mnesia_write_to_khepri(rabbit_topic_trie_edge, _) ->
-    %% Nothing to do, the `rabbit_topic_trie_binding` is enough to perform the migration
-    %% as Khepri stores each topic binding as a single path
+%% Nothing to do, the `rabbit_db_binding' migration creates the topic
+%% graph projection in Khepri which replaces this data.
+
+mnesia_write_to_khepri(_Table, _Records) ->
     ok.
 
-insert_in_khepri_tx(XName, RoutingKey, Destination, Args) ->
-    Path = khepri_exchange_type_topic_path(XName) ++ split_topic_key_binary(RoutingKey),
-    Binding = #{destination => Destination, arguments => Args},
-    Set0 = case khepri_tx:get(Path) of
-               {ok, undefined} -> sets:new();
-               {ok, S} -> S;
-               _ -> sets:new()
-           end,
-    Set = sets:add_element(Binding, Set0),
-    ok = khepri_tx:put(Path, Set).
-
-mnesia_delete_to_khepri(rabbit_topic_trie_binding, #topic_trie_binding{}) ->
-    %% TODO No routing keys here, how do we do? Use the node_id to search on the tree?
-    %% Can we still query mnesia content?
-    ok;
-mnesia_delete_to_khepri(rabbit_topic_trie_node, #topic_trie_node{}) ->
-    %% TODO see above
-    ok;
-mnesia_delete_to_khepri(rabbit_topic_trie_edge, #topic_trie_edge{}) ->
-    %% TODO see above
+mnesia_delete_to_khepri(_Table, _Record) ->
     ok.
 
-clear_data_in_khepri(rabbit_topic_trie_binding) ->
-    case rabbit_khepri:delete(khepri_exchange_type_topic_path()) of
-        ok -> ok;
-        Error -> throw(Error)
-    end;
-%% There is a single khepri entry for topics and it should be already deleted
-clear_data_in_khepri(rabbit_topic_trie_node) ->
-    ok;
-clear_data_in_khepri(rabbit_topic_trie_edge) ->
+clear_data_in_khepri(_Table) ->
     ok.
 
 %% -------------------------------------------------------------------
@@ -288,10 +190,7 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    case rabbit_khepri:delete(khepri_exchange_type_topic_path()) of
-        ok -> ok;
-        Error -> throw(Error)
-    end.
+    ok.
 
 %% --------------------------------------------------------------
 %% split_topic_key().
@@ -352,16 +251,6 @@ trie_records_to_key(Records) ->
              end, [], TrieBindings),
     ets:delete(Tab),
     List.
-
-%% --------------------------------------------------------------
-%% Khepri paths
-%% --------------------------------------------------------------
-
-khepri_exchange_type_topic_path(#resource{virtual_host = VHost, name = Name}) ->
-    [?MODULE, topic_trie_binding, VHost, Name].
-
-khepri_exchange_type_topic_path() ->
-    [?MODULE, topic_trie_binding].
 
 %% --------------------------------------------------------------
 %% Internal
@@ -562,26 +451,11 @@ trie_binding_op(X, Node, D, Args, Op) ->
                                            arguments     = Args}},
             write).
 
-split_topic_key_binary(<<>>) ->
-    [<<>>];
-split_topic_key_binary(Key) ->
-    Words = split_topic_key(Key, [], []),
-    [list_to_binary(W) || W <- Words].
-
 ensure_topic_deletion_ets() ->
     Tab = rabbit_db_topic_exchange_delete_table,
     case ets:whereis(Tab) of
         undefined ->
             ets:new(Tab, [public, named_table, {keypos, #topic_trie_edge.trie_edge}]);
-        Tid ->
-            Tid
-    end.
-
-ensure_topic_migration_ets() ->
-    Tab = rabbit_db_topic_exchange_write_table,
-    case ets:whereis(Tab) of
-        undefined ->
-            ets:new(Tab, [public, named_table]);
         Tid ->
             Tid
     end.
@@ -593,15 +467,15 @@ trie_match_in_khepri(X, Words) ->
 
 trie_match_in_khepri(X, Node, [], ResAcc) ->
     trie_match_part_in_khepri(
-      X, Node, <<"#">>, fun trie_match_skip_any_in_khepri/4, [],
+      X, Node, "#", fun trie_match_skip_any_in_khepri/4, [],
       trie_bindings_in_khepri(X, Node) ++ ResAcc);
 trie_match_in_khepri(X, Node, [W | RestW] = Words, ResAcc) ->
     lists:foldl(fun ({WArg, MatchFun, RestWArg}, Acc) ->
                         trie_match_part_in_khepri(
                           X, Node, WArg, MatchFun, RestWArg, Acc)
                 end, ResAcc, [{W, fun trie_match_in_khepri/4, RestW},
-                              {<<"*">>, fun trie_match_in_khepri/4, RestW},
-                              {<<"#">>,
+                              {"*", fun trie_match_in_khepri/4, RestW},
+                              {"#",
                                fun trie_match_skip_any_in_khepri/4, Words}]).
 
 trie_match_part_in_khepri(X, Node, Search, MatchFun, RestW, ResAcc) ->
@@ -632,7 +506,7 @@ trie_bindings_in_khepri(X, Node) ->
                                node_id       = Node,
                                word          = bindings}) of
         [#topic_trie_edge{node_id = {bindings, Bindings}}] ->
-            [Dest || #{destination := Dest} <- sets:to_list(Bindings)];
+            [Dest || #binding{destination = Dest} <- sets:to_list(Bindings)];
         [] ->
             []
     end.

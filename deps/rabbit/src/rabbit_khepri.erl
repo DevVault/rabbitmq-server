@@ -732,46 +732,60 @@ register_rabbit_topic_graph_projection() ->
             Edges = edges_for_path(Path, NewBindings),
             ets:insert(Table, Edges);
         (Table, Path, #{data := OldBindings}, _NewProps) ->
-            [BindingEdge | RestEdges] = edges_for_path(Path, OldBindings),
-            ets:delete_object(Table, BindingEdge),
-            trim_while_out_degree_is_zero(RestEdges);
+            [#topic_trie_edge{trie_edge = BindingTrieEdge} = BindingEdge | RestEdges] =
+              edges_for_path(Path, OldBindings),
+            [#topic_trie_edge{node_id = {bindings, Bindings}}] =
+              ets:lookup(Table, BindingTrieEdge),
+            Bindings1 = sets:subtract(Bindings, OldBindings),
+            case sets:is_empty(Bindings1) of
+                true ->
+                    ets:delete_object(Table, BindingEdge),
+                    trim_while_out_degree_is_zero(RestEdges);
+                false ->
+                    ToNodeId = {bindings, Bindings1},
+                    BindingEdge1 = BindingEdge#topic_trie_edge{node_id = ToNodeId},
+                    ets:insert(Table, BindingEdge1)
+            end;
         (_Table, _Path, _OldProps, _NewProps) ->
             ok
     end,
     Projection = khepri_projection:new(Name, ProjectionFun, Options),
-    PathPattern = [rabbit_db_topic_exchange,
-                   topic_trie_binding,
+    PathPattern = [rabbit_db_binding,
+                   routes,
                    _VHost = ?KHEPRI_WILDCARD_STAR,
-                   _ExchangeName = ?KHEPRI_WILDCARD_STAR,
-                   _Routes = ?KHEPRI_WILDCARD_STAR_STAR],
+                   _Exchange = #if_data_matches{pattern = #{type => topic}},
+                   _Kind = ?KHEPRI_WILDCARD_STAR,
+                   _DstName = ?KHEPRI_WILDCARD_STAR,
+                   _RoutingKey = ?KHEPRI_WILDCARD_STAR],
     khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
 
 edges_for_path(
-  [rabbit_db_topic_exchange, topic_trie_binding,
-   VHost, ExchangeName | Components],
+  [rabbit_db_binding, routes,
+   VHost, ExchangeName, _Kind, _DstName, RoutingKey],
   Bindings) ->
     Exchange = rabbit_misc:r(VHost, exchange, ExchangeName),
-    edges_for_path([root | Components], Bindings, Exchange, []).
+    Words = rabbit_db_topic_exchange:split_topic_key(RoutingKey),
+     edges_for_path([root | Words], Bindings, Exchange, []).
 
-edges_for_path([root, <<>>], Bindings, Exchange, Edges) ->
-    ToNodeId = {bindings, Bindings},
-    Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
-                                                   node_id =       root,
-                                                   word =          bindings},
-                            node_id = ToNodeId},
-    [Edge | Edges];
 edges_for_path([FromNodeId, To | Rest], Bindings, Exchange, Edges) ->
     ToNodeId = [To | FromNodeId],
     Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
-                                                   node_id =       FromNodeId,
-                                                   word =          To},
+                                                   node_id       = FromNodeId,
+                                                   word          = To},
                             node_id = ToNodeId},
     edges_for_path([ToNodeId | Rest], Bindings, Exchange, [Edge | Edges]);
 edges_for_path([LeafId], Bindings, Exchange, Edges) ->
-    ToNodeId = {bindings, Bindings},
-    Edge = #topic_trie_edge{trie_edge = #trie_edge{exchange_name = Exchange,
-                                                   node_id =       LeafId,
-                                                   word =          bindings},
+    TrieEdge = #trie_edge{exchange_name = Exchange,
+                          node_id       = LeafId,
+                          word          = bindings},
+    Bindings1 = case ets:lookup(rabbit_khepri_topic_trie, TrieEdge) of
+                    [#topic_trie_edge{node_id = {bindings, B}}] ->
+                        sets:union(B, Bindings);
+                    [] ->
+                        Bindings
+                end,
+    ToNodeId = {bindings, Bindings1},
+    Edge = #topic_trie_edge{trie_edge = TrieEdge,
                             node_id = ToNodeId},
     [Edge | Edges].
 

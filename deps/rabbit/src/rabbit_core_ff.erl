@@ -166,9 +166,6 @@
                             {rabbit_durable_route, rabbit_db_binding},
                             {rabbit_semi_durable_route, rabbit_db_binding},
                             {rabbit_reverse_route, rabbit_db_binding},
-                            {rabbit_topic_trie_binding, rabbit_db_topic_exchange},
-                            {rabbit_topic_trie_node, rabbit_db_topic_exchange},
-                            {rabbit_topic_trie_edge, rabbit_db_topic_exchange},
                             {rabbit_node_maintenance_states, rabbit_db_maintenance},
                             {mirrored_sup_childspec, rabbit_db_msup}]).
 
