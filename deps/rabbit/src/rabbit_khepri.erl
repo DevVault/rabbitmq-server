@@ -31,6 +31,7 @@
          update/2,
          cas/3,
          fold/3,
+         filter/2,
 
          get/1,
          get/2,
@@ -65,7 +66,22 @@
 %% Flag used during migration
 -export([is_ready/0,
          set_ready/0]).
+%% Used during migration to join the standalone Khepri nodes and form the
+%% equivalent cluster
+-export([init_cluster/1]).
 -export([do_join/1]).
+%% To add the current node to an existing cluster
+-export([check_join_cluster/1,
+         join_cluster/1,
+         leave_cluster/1]).
+-export([is_clustered/0]).
+-export([check_cluster_consistency/0,
+         check_cluster_consistency/2,
+         node_info/0]).
+-export([reset/0,
+         force_reset/0]).
+-export([cluster_status_from_khepri/0,
+         cli_cluster_status/0]).
 
 %% Path functions
 -export([if_has_data/1,
@@ -106,6 +122,7 @@ setup(_) ->
                        friendly_name => ?RA_FRIENDLY_NAME},
     case khepri:start(?RA_SYSTEM, RaServerConfig) of
         {ok, ?STORE_ID} ->
+            wait_for_leader(),
             register_projections(),
             ?LOG_DEBUG(
                "Khepri-based " ?RA_FRIENDLY_NAME " ready",
@@ -113,6 +130,43 @@ setup(_) ->
             ok;
         {error, _} = Error ->
             exit(Error)
+    end.
+
+wait_for_leader() ->
+    wait_for_leader(retry_timeout(), retry_limit()).
+
+retry_timeout() ->
+    case application:get_env(rabbit, khepri_leader_wait_retry_timeout) of
+        {ok, T}   -> T;
+        undefined -> 30000
+    end.
+
+retry_limit() ->
+    case application:get_env(rabbit, khepri_leader_wait_retry_limit) of
+        {ok, T}   -> T;
+        undefined -> 10
+    end.
+
+wait_for_leader(_Timeout, 0) ->
+    exit(timeout_waiting_for_leader);
+wait_for_leader(Timeout, Retries) ->
+    rabbit_log:info("Waiting for Khepri leader for ~tp ms, ~tp retries left",
+                    [Timeout, Retries - 1]),
+    case ra_leaderboard:lookup_leader(?STORE_ID) of
+        undefined ->
+            timer:sleep(Timeout),
+            wait_for_leader(Timeout, Retries - 1);
+        Id ->
+            case ra:members(Id, Timeout) of
+                {error, noproc} ->
+                    timer:sleep(Timeout),
+                    wait_for_leader(Timeout, Retries - 1);
+                {timeout, _} ->
+                    wait_for_leader(Timeout, Retries - 1);
+                {_, _, {_, NewNode}} ->
+                    rabbit_log:info("Khepri leader elected: ~p", [NewNode]),
+                    ok
+            end
     end.
 
 add_member(JoiningNode, JoinedNode)
@@ -299,6 +353,16 @@ remove_member(NodeToRemove) when NodeToRemove =/= node() ->
             ok
     end.
 
+reset() ->
+    %% Rabbit should be stopped, but Khepri needs to be running. Restart it.
+    ok = setup(),
+    ok = khepri_cluster:reset(?RA_CLUSTER_NAME),
+    ok = khepri:stop(?RA_CLUSTER_NAME).
+
+force_reset() ->
+    DataDir = maps:get(data_dir, ra_system:fetch(coordination)),
+    ok = rabbit_file:recursive_delete(filelib:wildcard(DataDir ++ "/*")).
+
 ensure_ra_system_started() ->
     {ok, _} = application:ensure_all_started(khepri),
     ok = rabbit_ra_systems:ensure_ra_system_started(?RA_SYSTEM).
@@ -389,6 +453,213 @@ get_sys_status(Proc) ->
 
     end.
 
+cli_cluster_status() ->
+    case rabbit:is_running() of
+        true ->
+            Nodes = nodes(),
+            [{nodes, [{disc, [N || N <- Nodes, rabbit_nodes:is_running(N)]}]},
+             {running_nodes, Nodes},
+             {cluster_name, rabbit_nodes:cluster_name()}];
+        false ->
+            []
+    end.
+
+%% For when Khepri is enabled
+init_cluster(_ClusterNodes) ->
+    %% Ensure the local Khepri store is running before we can join it. It
+    %% could be stopped if RabbitMQ is not running for instance.
+    ok = setup(),
+    khepri:info(?RA_CLUSTER_NAME),
+    _ = application:ensure_all_started(khepri_mnesia_migration),
+    mnesia_to_khepri:sync_cluster_membership(?STORE_ID).
+
+%%%%%%%%
+%% TODO run_peer_discovery!!
+%%%%%%%
+
+check_join_cluster(DiscoveryNode) ->
+    {ClusterNodes, _} = discover_cluster([DiscoveryNode]),
+    case me_in_nodes(ClusterNodes) of
+        false ->
+            case check_cluster_consistency(DiscoveryNode, false) of
+                {ok, _S} ->
+                    ok;
+                Error ->
+                    Error
+            end;
+        true ->
+            %% DiscoveryNode thinks that we are part of a cluster, but
+            %% do we think so ourselves?
+            case are_we_clustered_with(DiscoveryNode) of
+                true ->
+                    rabbit_log:info("Asked to join a cluster but already a member of it: ~tp", [ClusterNodes]),
+                    {ok, already_member};
+                false ->
+                    Msg = format_inconsistent_cluster_message(DiscoveryNode, node()),
+                    rabbit_log:error(Msg),
+                    {error, {inconsistent_cluster, Msg}}
+            end
+    end.
+
+join_cluster(DiscoveryNode) ->
+    {ClusterNodes, _} = discover_cluster([DiscoveryNode]),
+    case me_in_nodes(ClusterNodes) of
+        false ->
+            case check_cluster_consistency(DiscoveryNode, false) of
+                {ok, _S} ->
+                    ThisNode = node(),
+                    retry_khepri_op(fun() -> add_member(ThisNode, [DiscoveryNode]) end, 60);
+                Error ->
+                    Error
+            end;
+        true ->
+            %% DiscoveryNode thinks that we are part of a cluster, but
+            %% do we think so ourselves?
+            case are_we_clustered_with(DiscoveryNode) of
+                true ->
+                    rabbit_log:info("Asked to join a cluster but already a member of it: ~tp", [ClusterNodes]),
+                    {ok, already_member};
+                false ->
+                    Msg = format_inconsistent_cluster_message(DiscoveryNode, node()),
+                    rabbit_log:error(Msg),
+                    {error, {inconsistent_cluster, Msg}}
+            end
+    end.
+
+discover_cluster(Nodes) ->
+    case lists:foldl(fun (_,    {ok, Res}) -> {ok, Res};
+                         (Node, _)         -> discover_cluster0(Node)
+                     end, {error, no_nodes_provided}, Nodes) of
+        {ok, Res}        -> Res;
+        {error, E}       -> throw({error, E});
+        {badrpc, Reason} -> throw({badrpc_multi, Reason, Nodes})
+    end.
+
+discover_cluster0(Node) when Node == node() ->
+    {error, cannot_cluster_node_with_itself};
+discover_cluster0(Node) ->
+    rpc:call(Node, ?MODULE, cluster_status_from_khepri, []).
+
+leave_cluster(Node) ->
+    retry_khepri_op(fun() -> remove_member(Node) end, 60).
+
+-spec is_clustered() -> boolean().
+
+is_clustered() -> AllNodes = locally_known_nodes(),
+                  AllNodes =/= [] andalso AllNodes =/= [node()].
+
+check_cluster_consistency() ->
+    %% We want to find 0 or 1 consistent nodes.
+    case lists:foldl(
+           fun (Node,  {error, _})    -> check_cluster_consistency(Node, true);
+               (_Node, {ok, Status})  -> {ok, Status}
+           end, {error, not_found}, nodes_excl_me(nodes()))
+    of
+        {ok, {RemoteAllNodes, _Running}} ->
+            case ordsets:is_subset(ordsets:from_list(nodes()),
+                                   ordsets:from_list(RemoteAllNodes)) of
+                true  ->
+                    ok;
+                false ->
+                    %% We delete the schema here since we think we are
+                    %% clustered with nodes that are no longer in the
+                    %% cluster and there is no other way to remove
+                    %% them from our schema. On the other hand, we are
+                    %% sure that there is another online node that we
+                    %% can use to sync the tables with. There is a
+                    %% race here: if between this check and the
+                    %% `init_db' invocation the cluster gets
+                    %% disbanded, we're left with a node with no
+                    %% mnesia data that will try to connect to offline
+                    %% nodes.
+                    %% TODO delete schema in khepri ???
+                    ok
+            end;
+        {error, not_found} ->
+            ok;
+        {error, _} = E ->
+            throw(E)
+    end.
+
+nodes_excl_me(Nodes) -> Nodes -- [node()].
+
+check_cluster_consistency(Node, CheckNodesConsistency) ->
+    case (catch remote_node_info(Node)) of
+        {badrpc, _Reason} ->
+            {error, not_found};
+        {'EXIT', {badarg, _Reason}} ->
+            {error, not_found};
+        {_OTP, _Rabbit, {error, _Reason}} ->
+            {error, not_found};
+        {OTP, Rabbit, {ok, Status}} when CheckNodesConsistency ->
+            case check_consistency(Node, OTP, Rabbit, Status) of
+                {error, _} = E -> E;
+                ok             -> {ok, Status}
+            end;
+        {OTP, Rabbit, {ok, Status}} ->
+            case check_consistency(Node, OTP, Rabbit) of
+                {error, _} = E -> E;
+                ok             -> {ok, Status}
+            end
+    end.
+
+remote_node_info(Node) ->
+    rpc:call(Node, ?MODULE, node_info, []).
+
+check_consistency(Node, OTP, Rabbit) ->
+    rabbit_misc:sequence_error(
+      [rabbit_version:check_otp_consistency(OTP),
+       check_rabbit_consistency(Node, Rabbit)]).
+
+check_consistency(Node, OTP, Rabbit, Status) ->
+    rabbit_misc:sequence_error(
+      [rabbit_version:check_otp_consistency(OTP),
+       check_rabbit_consistency(Node, Rabbit),
+       check_nodes_consistency(Node, Status)]).
+
+check_rabbit_consistency(RemoteNode, RemoteVersion) ->
+    rabbit_misc:sequence_error(
+      [rabbit_version:check_version_consistency(
+         rabbit_misc:version(), RemoteVersion, "Rabbit",
+         fun rabbit_misc:version_minor_equivalent/2),
+       rabbit_feature_flags:check_node_compatibility(RemoteNode)]).
+
+check_nodes_consistency(Node, {RemoteAllNodes, _RemoteRunningNodes}) ->
+    case me_in_nodes(RemoteAllNodes) of
+        true ->
+            ok;
+        false ->
+            {error, {inconsistent_cluster,
+                     format_inconsistent_cluster_message(node(), Node)}}
+    end.
+
+format_inconsistent_cluster_message(Thinker, Dissident) ->
+    rabbit_misc:format("Khepri: node ~tp thinks it's clustered "
+                       "with node ~tp, but ~tp disagrees",
+                       [Thinker, Dissident, Dissident]).
+
+me_in_nodes(Nodes) -> lists:member(node(), Nodes).
+
+are_we_clustered_with(Node) ->
+    %% Khepri is stopped at this point, let's ask rabbit_node_monitor
+    %% We're going to fail to join anyway, but for the user is not the same
+    %% to return 'already a member' than 'inconsistent cluster'.
+    {AllNodes, _DiscNodes, _RunningNodes} = rabbit_node_monitor:read_cluster_status(),
+    lists:member(Node, AllNodes).
+
+node_info() ->
+    {rabbit_misc:otp_release(), rabbit_misc:version(), cluster_status_from_khepri()}.
+
+cluster_status_from_khepri() ->
+    case get_sys_status({metadata_store, node()}) of
+        {ok, _} ->
+            All = locally_known_nodes(),
+            Running = lists:filter(fun(N) -> rabbit_nodes:is_running(N) end, All),
+            {ok, {All, Running}};
+        _ ->
+            {error, khepri_not_running}
+    end.
+
 %% -------------------------------------------------------------------
 %% "Proxy" functions to Khepri API.
 %% -------------------------------------------------------------------
@@ -408,6 +679,8 @@ cas(Path, Pattern, Data) ->
     khepri:compare_and_swap(?STORE_ID, Path, Pattern, Data).
 
 fold(Path, Pred, Acc) -> khepri:fold(?STORE_ID, Path, Pred, Acc).
+
+filter(Path, Pred) -> khepri:filter(?STORE_ID, Path, Pred).
 
 get(Path) ->
     khepri:get(?STORE_ID, Path, #{favor => low_latency}).
@@ -820,4 +1093,28 @@ trim_while_out_degree_is_zero([Edge | Rest]) ->
             %% If a node has a non-zero out-degree then all of its ancestors
             %% must as well.
             ok
+    end.
+
+retry_khepri_op(Fun, 0) ->
+    Fun();
+retry_khepri_op(Fun, N) ->
+    case Fun() of
+        {error, {no_more_servers_to_try, Reasons}} = Err ->
+            case lists:member({error,cluster_change_not_permitted}, Reasons) of
+                true ->
+                    timer:sleep(1000),
+                    retry_khepri_op(Fun, N - 1);
+                false ->
+                    Err
+            end;
+        {no_more_servers_to_try, Reasons} = Err ->
+            case lists:member({error,cluster_change_not_permitted}, Reasons) of
+                true ->
+                    timer:sleep(1000),
+                    retry_khepri_op(Fun, N - 1);
+                false ->
+                    Err
+            end;
+        Any ->
+            Any
     end.

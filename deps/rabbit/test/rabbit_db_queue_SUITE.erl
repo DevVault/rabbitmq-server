@@ -50,14 +50,14 @@ all_tests() ->
      filter_all_durable,
      get_durable,
      get_many_durable,
-     update_durable
+     update_durable,
+     foreach_durable,
+     internal_delete
     ].
 
 mnesia_tests() ->
     [
      set_dirty,
-     internal_delete,
-     foreach_durable,
      foreach_transient,
      delete_transient,
      update_in_mnesia_tx,

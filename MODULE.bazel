@@ -246,6 +246,13 @@ erlang_package.git_package(
     repository = "rabbitmq/khepri",
 )
 
+erlang_package.git_package(
+    name = "khepri_mnesia_migration",
+    build_file = "@rabbitmq-server//bazel:BUILD.khepri_mnesia_migration",
+    repository = "rabbitmq/khepri_mnesia_migration",
+    commit = "7893583d62ad78602ef3c3d8f8a82426c0926d19",
+)
+
 erlang_package.hex_package(
     name = "thoas",
     build_file = "@rabbitmq-server//bazel:BUILD.thoas",
@@ -358,6 +365,7 @@ use_repo(
     "jose",
     "json",
     "khepri",
+    "khepri_mnesia_migration",
     "observer_cli",
     "osiris",
     "prometheus",

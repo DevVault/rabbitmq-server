@@ -107,9 +107,9 @@
           %% durable
           recoverable_slaves = [] :: [atom()] | none | ets:match_pattern(),
           %% durable, implicit update as above
-          policy :: binary() | none | undefined | ets:match_pattern(),
+          policy :: proplists:proplist() | none | undefined | ets:match_pattern(),
           %% durable, implicit update as above
-          operator_policy :: binary() | none | undefined | ets:match_pattern(),
+          operator_policy :: proplists:proplist() | none | undefined | ets:match_pattern(),
           %% transient
           gm_pids = [] :: [{pid(), pid()}] | none | ets:match_pattern(),
           %% transient, recalculated as above

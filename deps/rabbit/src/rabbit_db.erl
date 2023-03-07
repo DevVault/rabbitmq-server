@@ -46,7 +46,10 @@
 init() ->
     rabbit_db:run(
       #{mnesia => fun() -> init_in_mnesia() end,
-        khepri => fun() -> init_in_khepri() end
+        khepri => fun() ->
+                          init_in_khepri(),
+                          init_in_mnesia()
+                  end
        }).
 
 init_in_mnesia() ->
@@ -82,7 +85,14 @@ init_using_mnesia() ->
 %% @doc Resets the database and the node.
 
 reset() ->
-    reset_using_mnesia().
+    rabbit_log:info("Resetting Rabbit", []),
+    run(
+      #{mnesia => fun() -> reset_using_mnesia() end,
+        khepri => fun() ->
+                          reset_using_khepri(),
+                          reset_using_mnesia()
+                  end
+       }).
 
 reset_using_mnesia() ->
     ?LOG_DEBUG(
@@ -90,18 +100,33 @@ reset_using_mnesia() ->
       #{domain => ?RMQLOG_DOMAIN_DB}),
     rabbit_mnesia:reset().
 
+reset_using_khepri() ->
+    ?LOG_DEBUG(
+      "DB: resetting node",
+      #{domain => ?RMQLOG_DOMAIN_DB}),
+    rabbit_khepri:reset().
+
 -spec force_reset() -> Ret when
       Ret :: ok.
 %% @doc Resets the database and the node.
 
 force_reset() ->
-    force_reset_using_mnesia().
+    ?LOG_DEBUG(
+       "DB: resetting node forcefully",
+       #{domain => ?RMQLOG_DOMAIN_DB}),
+    run(
+      #{mnesia => fun() -> force_reset_using_mnesia() end,
+        khepri => fun() -> 
+                          force_reset_using_khepri(),
+                          force_reset_using_mnesia()
+                  end
+       }).
 
 force_reset_using_mnesia() ->
-    ?LOG_DEBUG(
-      "DB: resetting node forcefully",
-      #{domain => ?RMQLOG_DOMAIN_DB}),
     rabbit_mnesia:force_reset().
+
+force_reset_using_khepri() ->
+    rabbit_khepri:force_reset().
 
 -spec force_load_on_next_boot() -> Ret when
       Ret :: ok.
@@ -111,7 +136,16 @@ force_reset_using_mnesia() ->
 %% state, like if critical members are MIA.
 
 force_load_on_next_boot() ->
-    force_load_on_next_boot_using_mnesia().
+    run(
+      #{mnesia => fun() -> force_load_on_next_boot_using_mnesia() end,
+        khepri => fun() ->
+                          %% TODO force load using Khepri might need to be implemented
+                          %% for disaster recovery scenarios where just a minority of
+                          %% nodes are accessible. Potentially, it could also be replaced
+                          %% with a way to export all the data.
+                          force_load_on_next_boot_using_mnesia()
+                  end
+       }).
 
 force_load_on_next_boot_using_mnesia() ->
     ?LOG_DEBUG(

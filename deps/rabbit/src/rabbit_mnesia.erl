@@ -232,13 +232,6 @@ join_discovered_peers_with_retries(TryNodes, NodeType, RetriesLeft, DelayInterva
                         -> ok | {ok, already_member} | {error, {inconsistent_cluster, string()}}.
 
 join_cluster(DiscoveryNode, NodeType) ->
-    case join_mnesia_cluster(DiscoveryNode, NodeType) of
-        ok                   -> join_khepri_cluster(DiscoveryNode);
-        {ok, already_member} -> join_khepri_cluster(DiscoveryNode);
-        Other                -> Other
-    end.
-
-join_mnesia_cluster(DiscoveryNode, NodeType) ->
     ensure_mnesia_not_running(),
     ensure_mnesia_dir(),
     case is_only_clustered_disc_node() of
@@ -262,7 +255,6 @@ join_mnesia_cluster(DiscoveryNode, NodeType) ->
                                     [ClusterNodes, NodeType]),
                     ok = init_db_with_mnesia(ClusterNodes, NodeType,
                                              true, true, _Retry = true),
-                    rabbit_node_monitor:notify_joined_cluster(),
                     ok;
                 {error, Reason} ->
                     {error, Reason}
@@ -281,37 +273,6 @@ join_mnesia_cluster(DiscoveryNode, NodeType) ->
             end
     end.
 
-join_khepri_cluster(DiscoveryNode) ->
-    ThisNode = node(),
-    retry_khepri_op(fun() -> rabbit_khepri:add_member(ThisNode, [DiscoveryNode]) end, 60).
-
-leave_khepri_cluster(Node) ->
-    retry_khepri_op(fun() -> rabbit_khepri:remove_member(Node) end, 60).
-
-retry_khepri_op(Fun, 0) ->
-    Fun();
-retry_khepri_op(Fun, N) ->
-    case Fun() of
-        {error, {no_more_servers_to_try, Reasons}} = Err ->
-            case lists:member({error,cluster_change_not_permitted}, Reasons) of
-                true ->
-                    timer:sleep(1000),
-                    retry_khepri_op(Fun, N - 1);
-                false ->
-                    Err
-            end;
-        {no_more_servers_to_try, Reasons} = Err ->
-            case lists:member({error,cluster_change_not_permitted}, Reasons) of
-                true ->
-                    timer:sleep(1000),
-                    retry_khepri_op(Fun, N - 1);
-                false ->
-                    Err
-            end;
-        Any ->
-            Any
-    end.
-
 %% return node to its virgin state, where it is not member of any
 %% cluster, has no cluster configuration, no local database, and no
 %% persisted messages
@@ -320,7 +281,6 @@ retry_khepri_op(Fun, N) ->
 
 reset() ->
     ensure_mnesia_not_running(),
-    rabbit_log:info("Resetting Rabbit", []),
     reset_gracefully().
 
 -spec force_reset() -> 'ok'.
@@ -358,27 +318,21 @@ wipe() ->
 -spec change_cluster_node_type(rabbit_db_cluster:node_type()) -> 'ok'.
 
 change_cluster_node_type(Type) ->
-    case rabbit_khepri:is_enabled() of
-        true ->
-            rabbit_log:warning("Change cluster node type is not supported by Khepri. Only disc nodes are allowed. Skipping..."),
-            ok;
-        false ->
-            ensure_mnesia_not_running(),
-            ensure_mnesia_dir(),
-            case is_clustered() of
-                false -> e(not_clustered);
-                true  -> ok
-            end,
-            {_, _, RunningNodes} = discover_cluster(cluster_nodes(all)),
-            %% We might still be marked as running by a remote node since the
-            %% information of us going down might not have propagated yet.
-            Node = case RunningNodes -- [node()] of
-                       []        -> e(no_online_cluster_nodes);
-                       [Node0|_] -> Node0
-                   end,
-            ok = reset(),
-            ok = join_cluster(Node, Type)
-    end.
+    ensure_mnesia_not_running(),
+    ensure_mnesia_dir(),
+    case is_clustered() of
+        false -> e(not_clustered);
+        true  -> ok
+    end,
+    {_, _, RunningNodes} = discover_cluster(cluster_nodes(all)),
+    %% We might still be marked as running by a remote node since the
+    %% information of us going down might not have propagated yet.
+    Node = case RunningNodes -- [node()] of
+               []        -> e(no_online_cluster_nodes);
+               [Node0|_] -> Node0
+           end,
+    ok = reset(),
+    ok = join_cluster(Node, Type).
 
 -spec update_cluster_nodes(node()) -> 'ok'.
 
@@ -625,7 +579,7 @@ init_db(ClusterNodes, NodeType, CheckOtherNodes) ->
     %% membership. If enabling feature flags fails, Mnesia could remain
     %% in an inconsistent state that prevents later joining the nodes.
     ensure_feature_flags_are_in_sync(nodes_excl_me(ClusterNodes), NodeIsVirgin),
-    Nodes = change_extra_db_nodes(ClusterNodes, CheckOtherNodes),
+    Nodes = change_extra_mnesia_nodes(ClusterNodes, CheckOtherNodes),
     %% Note that we use `system_info' here and not the cluster status
     %% since when we start rabbit for the first time the cluster
     %% status will say we are a disc node but the tables won't be
@@ -1003,12 +957,7 @@ remove_node_if_mnesia_running(Node) ->
                 {atomic, ok} ->
                     rabbit_amqqueue:forget_all_durable(Node),
                     rabbit_node_monitor:notify_left_cluster(Node),
-                    %% TODO it doesn't work if the node is down for Khepri,
-                    %% but Khepri might be indeed disabled!!! Should we skip?
-                    case rabbit_khepri:is_enabled() of
-                        true -> leave_khepri_cluster(Node);
-                        false -> ok
-                    end;
+                    ok;
                 {aborted, Reason} ->
                     {error, {failed_to_remove_node, Node, Reason}}
             end
@@ -1051,16 +1000,6 @@ stop_mnesia() ->
     stopped = mnesia:stop(),
     ensure_mnesia_not_running().
 
-change_extra_db_nodes(ClusterNodes, CheckOtherNodes) ->
-    Nodes = change_extra_mnesia_nodes(ClusterNodes, CheckOtherNodes),
-    %% FIXME: Need to cluster Khepri at this point? I don't think so... I keep
-    %% the code but it does nothing (`false' condition).
-    case false andalso rabbit_khepri:is_enabled() of
-        true  -> _ = change_extra_khepri_nodes(ClusterNodes, CheckOtherNodes);
-        false -> ok
-    end,
-    Nodes.
-
 change_extra_mnesia_nodes(ClusterNodes0, CheckOtherNodes) ->
     ClusterNodes = nodes_excl_me(ClusterNodes0),
     case {mnesia:change_config(extra_db_nodes, ClusterNodes), ClusterNodes} of
@@ -1069,26 +1008,6 @@ change_extra_mnesia_nodes(ClusterNodes0, CheckOtherNodes) ->
                            "Mnesia could not connect to any nodes."}});
         {{ok, Nodes}, _} ->
             Nodes
-    end.
-
-change_extra_khepri_nodes(ClusterNodes, CheckOtherNodes) ->
-    ThisNode = node(),
-    _ = rabbit_khepri:add_member(ThisNode, ClusterNodes),
-    ActualNodes = rabbit_khepri:locally_known_nodes(),
-    case CheckOtherNodes of
-        true ->
-            UnclusteredNodes = ClusterNodes -- ActualNodes,
-            case UnclusteredNodes of
-                [] ->
-                    ActualNodes;
-                _ ->
-                    rabbit_log:error("UnclusteredNodes = ~p~n", [UnclusteredNodes]),
-                    throw({error,
-                           {failed_to_cluster_with, ClusterNodes,
-                            "Khepri could not connect to any nodes."}})
-            end;
-        false ->
-            ActualNodes
     end.
 
 check_consistency(Node, OTP, Rabbit, ProtocolVersion) ->
@@ -1283,6 +1202,6 @@ error_description(no_running_cluster_nodes) ->
     "You cannot leave a cluster if no online nodes are present.".
 
 format_inconsistent_cluster_message(Thinker, Dissident) ->
-    rabbit_misc:format("Node ~tp thinks it's clustered "
+    rabbit_misc:format("Mnesia: node ~tp thinks it's clustered "
                        "with node ~tp, but ~tp disagrees",
                        [Thinker, Dissident, Dissident]).

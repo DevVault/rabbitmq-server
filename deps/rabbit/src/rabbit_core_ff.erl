@@ -182,8 +182,16 @@ mds_phase1_migration_enable(#{feature_name := FeatureName}) ->
     Tables = ?MDS_PHASE1_TABLES,
     global:set_lock({FeatureName, self()}),
     Ret = case rabbit_khepri:is_ready() of
-              true -> ok;
-              false -> mds_migration_enable(FeatureName, Tables)
+              true ->
+                  ok;
+              false ->
+                  ClusterNodes = rabbit_mnesia:cluster_nodes(all),
+                  case rabbit_khepri:init_cluster(ClusterNodes) of
+                      ok ->
+                          mds_migration_enable(FeatureName, Tables);
+                      {error, Reason} ->
+                          {error, {migration_failure, Reason}}
+                  end
           end,
     global:del_lock({FeatureName, self()}),
     Ret.

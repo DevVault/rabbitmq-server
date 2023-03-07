@@ -335,6 +335,19 @@ khepri:
 - khepri_tx
 - khepri_tx_adv
 - khepri_utils
+khepri_mnesia_migration:
+- khepri_mnesia_migration_app
+- khepri_mnesia_migration_sup
+- kmm_utils
+- m2k_cluster_sync
+- m2k_cluster_sync_sup
+- m2k_export
+- m2k_subscriber
+- m2k_table_copy
+- m2k_table_copy_sup
+- m2k_table_copy_sup_sup
+- mnesia_to_khepri
+- mnesia_to_khepri_default_converter
 meck:
 - meck
 - meck_args_matcher

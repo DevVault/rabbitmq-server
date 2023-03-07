@@ -358,6 +358,9 @@ delete_in_mnesia(QueueName, Reason) ->
       end).
 
 delete_in_khepri(QueueName) ->
+    delete_in_khepri(QueueName, false).
+
+delete_in_khepri(QueueName, OnlyDurable) ->
     rabbit_khepri:transaction(
       fun () ->
               Path = khepri_queue_path(QueueName),
@@ -365,7 +368,7 @@ delete_in_khepri(QueueName) ->
                   {ok, #{data := _}} ->
                       %% we want to execute some things, as decided by rabbit_exchange,
                       %% after the transaction.
-                      rabbit_db_binding:delete_for_destination_in_khepri(QueueName, false);
+                      rabbit_db_binding:delete_for_destination_in_khepri(QueueName, OnlyDurable);
                   {ok, _} ->
                       ok
               end
@@ -387,7 +390,7 @@ internal_delete(QueueName, OnlyDurable, Reason) ->
     %% HA queues are removed it can be removed.
     rabbit_db:run(
       #{mnesia => fun() -> internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) end,
-        khepri => fun() -> ok end
+        khepri => fun() -> delete_in_khepri(QueueName, OnlyDurable) end
        }).
 
 internal_delete_in_mnesia(QueueName, OnlyDurable, Reason) ->
@@ -970,7 +973,7 @@ foreach_transient_in_mnesia(UpdateFun) ->
 foreach_durable(UpdateFun, FilterFun) ->
     rabbit_db:run(
       #{mnesia => fun() -> foreach_durable_in_mnesia(UpdateFun, FilterFun) end,
-        khepri => fun() -> ok end
+        khepri => fun() -> foreach_durable_in_khepri(UpdateFun, FilterFun) end
        }).
 
 foreach_durable_in_mnesia(UpdateFun, FilterFun) ->
@@ -984,7 +987,15 @@ foreach_durable_in_mnesia(UpdateFun, FilterFun) ->
                   _ = [UpdateFun(Q) || Q <- Qs, FilterFun(Q)],
                   ok
           end),
-    ok.    
+    ok.
+
+foreach_durable_in_khepri(UpdateFun, FilterFun) ->
+    Path = khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()],
+    {ok, Qs} = rabbit_khepri:filter(Path, fun(_, #{data := Q}) ->
+                                                  FilterFun(Q)
+                                          end),
+    _ = [UpdateFun(Q) || Q <- maps:values(Qs)],
+    ok.
 
 %% -------------------------------------------------------------------
 %% set_dirty().
