@@ -327,6 +327,7 @@ khepri:
 - khepri_import_export
 - khepri_machine
 - khepri_path
+- khepri_pattern_tree
 - khepri_payload
 - khepri_projection
 - khepri_sproc

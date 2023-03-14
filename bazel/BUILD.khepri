@@ -178,6 +178,18 @@ erlang_bytecode(
 )
 
 erlang_bytecode(
+    name = "ebin_khepri_pattern_tree_beam",
+    srcs = ["src/khepri_pattern_tree.erl"],
+    outs = ["ebin/khepri_pattern_tree.beam"],
+    hdrs = [
+        "src/khepri_payload.hrl",
+        "src/khepri_tree.hrl",
+    ],
+    app_name = "khepri",
+    erlc_opts = "//:erlc_opts",
+)
+
+erlang_bytecode(
     name = "ebin_khepri_payload_beam",
     srcs = ["src/khepri_payload.erl"],
     outs = ["ebin/khepri_payload.beam"],
@@ -303,6 +315,7 @@ filegroup(
         "ebin/khepri_import_export.beam",
         "ebin/khepri_machine.beam",
         "ebin/khepri_path.beam",
+        "ebin/khepri_pattern_tree.beam",
         "ebin/khepri_payload.beam",
         "ebin/khepri_projection.beam",
         "ebin/khepri_sproc.beam",
@@ -330,6 +343,7 @@ filegroup(
         "src/khepri_import_export.erl",
         "src/khepri_machine.erl",
         "src/khepri_path.erl",
+        "src/khepri_pattern_tree.erl",
         "src/khepri_payload.erl",
         "src/khepri_projection.erl",
         "src/khepri_sproc.erl",
