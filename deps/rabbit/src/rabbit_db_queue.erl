@@ -450,9 +450,9 @@ get_in_mnesia(Name) ->
     rabbit_mnesia:dirty_read({?MNESIA_TABLE, Name}).
 
 get_in_khepri(Name) ->
-    case rabbit_khepri:get(khepri_queue_path(Name)) of
-        {ok, Q} -> {ok, Q};
-        _       -> {error, not_found}
+    case ets:lookup(?KHEPRI_PROJECTION, Name) of
+        [Q] -> {ok, Q};
+        []  -> {error, not_found}
     end.
 
 %% -------------------------------------------------------------------
