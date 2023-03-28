@@ -1011,17 +1011,20 @@ register_rabbit_topic_graph_projection() ->
         (Table, Path, #{data := OldBindings}, _NewProps) ->
             [#topic_trie_edge{trie_edge = BindingTrieEdge} = BindingEdge | RestEdges] =
               edges_for_path(Path, OldBindings),
-            [#topic_trie_edge{node_id = {bindings, Bindings}}] =
-              ets:lookup(Table, BindingTrieEdge),
-            Bindings1 = sets:subtract(Bindings, OldBindings),
-            case sets:is_empty(Bindings1) of
-                true ->
-                    ets:delete_object(Table, BindingEdge),
-                    trim_while_out_degree_is_zero(RestEdges);
-                false ->
-                    ToNodeId = {bindings, Bindings1},
-                    BindingEdge1 = BindingEdge#topic_trie_edge{node_id = ToNodeId},
-                    ets:insert(Table, BindingEdge1)
+            case ets:lookup(Table, BindingTrieEdge) of
+                [#topic_trie_edge{node_id = {bindings, Bindings}}] ->
+                    Bindings1 = sets:subtract(Bindings, OldBindings),
+                    case sets:is_empty(Bindings1) of
+                        true ->
+                            ets:delete_object(Table, BindingEdge),
+                            trim_while_out_degree_is_zero(RestEdges);
+                        false ->
+                            ToNodeId = {bindings, Bindings1},
+                            BindingEdge1 = BindingEdge#topic_trie_edge{node_id = ToNodeId},
+                            ets:insert(Table, BindingEdge1)
+                    end;
+                [] ->
+                    trim_while_out_degree_is_zero(RestEdges)
             end;
         (_Table, _Path, _OldProps, _NewProps) ->
             ok
