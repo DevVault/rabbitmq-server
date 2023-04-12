@@ -958,9 +958,9 @@ register_rabbit_index_route_projection() ->
     Projection = khepri_projection:new(
                    rabbit_khepri_index_route, ProjectionFun, Options),
     DirectOrFanout = #if_data_matches{pattern = #{type => '$1'},
-                                      conditions = [{'orelse',
-                                                     {'=:=', '$1', direct},
-                                                     {'=:=', '$1', fanout}}]},
+                                      conditions = [{'andalso',
+                                                     {'=/=', '$1', headers},
+                                                     {'=/=', '$1', topic}}]},
     PathPattern = [rabbit_db_binding,
                    routes,
                    _VHost = ?KHEPRI_WILDCARD_STAR,
