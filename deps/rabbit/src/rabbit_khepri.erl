@@ -122,7 +122,6 @@ setup(_) ->
                        friendly_name => ?RA_FRIENDLY_NAME},
     case khepri:start(?RA_SYSTEM, RaServerConfig) of
         {ok, ?STORE_ID} ->
-            wait_for_leader(),
             register_projections(),
             ?LOG_DEBUG(
                "Khepri-based " ?RA_FRIENDLY_NAME " ready",
@@ -130,43 +129,6 @@ setup(_) ->
             ok;
         {error, _} = Error ->
             exit(Error)
-    end.
-
-wait_for_leader() ->
-    wait_for_leader(retry_timeout(), retry_limit()).
-
-retry_timeout() ->
-    case application:get_env(rabbit, khepri_leader_wait_retry_timeout) of
-        {ok, T}   -> T;
-        undefined -> 30000
-    end.
-
-retry_limit() ->
-    case application:get_env(rabbit, khepri_leader_wait_retry_limit) of
-        {ok, T}   -> T;
-        undefined -> 10
-    end.
-
-wait_for_leader(_Timeout, 0) ->
-    exit(timeout_waiting_for_leader);
-wait_for_leader(Timeout, Retries) ->
-    rabbit_log:info("Waiting for Khepri leader for ~tp ms, ~tp retries left",
-                    [Timeout, Retries - 1]),
-    case ra_leaderboard:lookup_leader(?STORE_ID) of
-        undefined ->
-            timer:sleep(Timeout),
-            wait_for_leader(Timeout, Retries - 1);
-        Id ->
-            case ra:members(Id, Timeout) of
-                {error, noproc} ->
-                    timer:sleep(Timeout),
-                    wait_for_leader(Timeout, Retries - 1);
-                {timeout, _} ->
-                    wait_for_leader(Timeout, Retries - 1);
-                {_, _, {_, NewNode}} ->
-                    rabbit_log:info("Khepri leader elected: ~p", [NewNode]),
-                    ok
-            end
     end.
 
 add_member(JoiningNode, JoinedNode)
