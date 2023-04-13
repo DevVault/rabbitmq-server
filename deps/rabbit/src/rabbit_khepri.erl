@@ -68,7 +68,7 @@
          set_ready/0]).
 %% Used during migration to join the standalone Khepri nodes and form the
 %% equivalent cluster
--export([init_cluster/1]).
+-export([init_cluster/0]).
 -export([do_join/1]).
 %% To add the current node to an existing cluster
 -export([check_join_cluster/1,
@@ -427,7 +427,7 @@ cli_cluster_status() ->
     end.
 
 %% For when Khepri is enabled
-init_cluster(_ClusterNodes) ->
+init_cluster() ->
     %% Ensure the local Khepri store is running before we can join it. It
     %% could be stopped if RabbitMQ is not running for instance.
     ok = setup(),

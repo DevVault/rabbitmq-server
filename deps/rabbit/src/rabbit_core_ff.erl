@@ -185,13 +185,7 @@ mds_phase1_migration_enable(#{feature_name := FeatureName}) ->
               true ->
                   ok;
               false ->
-                  ClusterNodes = rabbit_mnesia:cluster_nodes(all),
-                  case rabbit_khepri:init_cluster(ClusterNodes) of
-                      ok ->
-                          mds_migration_enable(FeatureName, Tables);
-                      {error, Reason} ->
-                          {error, {migration_failure, Reason}}
-                  end
+                  mds_migration_enable(FeatureName, Tables)
           end,
     global:del_lock({FeatureName, self()}),
     Ret.
@@ -208,8 +202,12 @@ mds_phase1_migration_post_enable(#{feature_name := FeatureName}) ->
     rabbit_db:set_migration_flag(FeatureName).
 
 mds_migration_enable(FeatureName, TablesAndOwners) ->
-    ok = ensure_khepri_cluster_matches_mnesia(FeatureName),
-    migrate_tables_to_khepri(FeatureName, TablesAndOwners).
+    case ensure_khepri_cluster_matches_mnesia(FeatureName) of
+        ok ->
+            migrate_tables_to_khepri(FeatureName, TablesAndOwners);
+        Error ->
+            {error, {migration_failure, Error}}
+    end.
 
 mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     ?assert(rabbit_khepri:is_enabled(non_blocking)),
@@ -217,12 +215,6 @@ mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     empty_unused_mnesia_tables(FeatureName, Tables).
 
 ensure_khepri_cluster_matches_mnesia(FeatureName) ->
-    %% The ff controller has already ensure that all Mnesia nodes are running.
-    ?LOG_DEBUG(
-       "Feature flag `~s`:   ensure Khepri Ra system is running",
-       [FeatureName]),
-    ok = rabbit_khepri:setup(),
-    AllMnesiaNodes = lists:sort(rabbit_mnesia:cluster_nodes(all)),
     %% This is the first time Khepri will be used for real. Therefore
     %% we need to make sure the Khepri cluster matches the Mnesia
     %% cluster.
@@ -230,116 +222,7 @@ ensure_khepri_cluster_matches_mnesia(FeatureName) ->
        "Feature flag `~s`:   updating the Khepri cluster to match "
        "the Mnesia cluster",
        [FeatureName]),
-    expand_khepri_cluster(FeatureName, AllMnesiaNodes).
-
-expand_khepri_cluster(FeatureName, AllMnesiaNodes) ->
-    %% All Mnesia nodes are running (this is a requirement to enable this
-    %% feature flag). We use this unique list of nodes to find the largest
-    %% Khepri clusters among all of them.
-    %%
-    %% The idea is that at the beginning, each Mnesia node will also be an
-    %% unclustered Khepri node. Therefore, the first node in the sorted list
-    %% of Mnesia nodes will be picked (a "cluster" with 1 member, but the
-    %% "largest" at the beginning).
-    %%
-    %% After the first nodes join that single node, its cluster will grow and
-    %% will continue to be the largest.
-    %%
-    %% This function is executed on the node enabling the feature flag. It will
-    %% take care of adding all nodes in the Mnesia cluster to a Khepri cluster
-    %% (except those which are already part of it).
-    %%
-    %% This should avoid the situation where a large established cluster is
-    %% reset and joins a single new/empty node.
-    %%
-    %% Also, we only consider Khepri clusters which are in use (i.e. the
-    %% feature flag is enabled). Here is an example:
-    %%     - Node2 is the only node in the Mnesia cluster at the time the
-    %%       feature flag is enabled. It joins no other node and runs its own
-    %%       one-node Khepri cluster.
-    %%     - Node1 joins the Mnesia cluster which is now Node1 + Node2. Given
-    %%       the sorting, Khepri clusters will be [[Node1], [Node2]] when
-    %%       sorted by name and size. With this order, Node1 should "join"
-    %%       itself. But the feature is not enabled yet on this node,
-    %%       therefore, we skip this cluster to consider the following one,
-    %%       [Node2].
-    KhepriCluster = find_largest_khepri_cluster(FeatureName),
-    NodesToAdd = AllMnesiaNodes -- KhepriCluster,
-    ?LOG_DEBUG(
-       "Feature flags `~s`:   selected Khepri cluster: ~p",
-       [FeatureName, KhepriCluster]),
-    ?LOG_DEBUG(
-       "Feature flags `~s`:   Mnesia nodes to add to the Khepri cluster "
-       "above: ~p",
-       [FeatureName, NodesToAdd]),
-    add_nodes_to_khepri_cluster(FeatureName, KhepriCluster, NodesToAdd).
-
-add_nodes_to_khepri_cluster(FeatureName, KhepriCluster, [Node | Rest]) ->
-    add_node_to_khepri_cluster(FeatureName, KhepriCluster, Node),
-    add_nodes_to_khepri_cluster(FeatureName, KhepriCluster, Rest);
-add_nodes_to_khepri_cluster(_FeatureName, _KhepriCluster, []) ->
-    ok.
-
-add_node_to_khepri_cluster(FeatureName, KhepriCluster, Node) ->
-    ?assertNotEqual([], KhepriCluster),
-    case lists:member(Node, KhepriCluster) of
-        true ->
-            ?LOG_DEBUG(
-               "Feature flag `~s`:   node ~p is already a member of "
-               "the largest cluster: ~p",
-               [FeatureName, Node, KhepriCluster]),
-            ok;
-        false ->
-            ?LOG_DEBUG(
-               "Feature flag `~s`:   adding node ~p to the largest "
-               "Khepri cluster found among Mnesia nodes: ~p",
-               [FeatureName, Node, KhepriCluster]),
-            case rabbit_khepri:add_member(Node, KhepriCluster) of
-                ok                   -> ok;
-                {ok, already_member} -> ok
-            end
-    end.
-
-find_largest_khepri_cluster(FeatureName) ->
-    case list_all_khepri_clusters(FeatureName) of
-        [] ->
-            [node()];
-        KhepriClusters ->
-            KhepriClustersBySize = sort_khepri_clusters_by_size(
-                                     KhepriClusters),
-            ?LOG_DEBUG(
-               "Feature flag `~s`:   existing Khepri clusters (sorted by "
-               "size): ~p",
-               [FeatureName, KhepriClustersBySize]),
-            LargestKhepriCluster = hd(KhepriClustersBySize),
-            LargestKhepriCluster
-    end.
-
-list_all_khepri_clusters(FeatureName) ->
-    MnesiaNodes = lists:sort(rabbit_mnesia:cluster_nodes(all)),
-    ?LOG_DEBUG(
-       "Feature flag `~s`:   querying the following Mnesia nodes to learn "
-       "their Khepri cluster membership: ~p",
-       [FeatureName, MnesiaNodes]),
-    KhepriClusters = lists:foldl(
-                       fun(MnesiaNode, Acc) ->
-                               case khepri_cluster_on_node(MnesiaNode) of
-                                   []        -> Acc;
-                                   Cluster   -> Acc#{Cluster => true}
-                               end
-                       end, #{}, MnesiaNodes),
-    lists:sort(maps:keys(KhepriClusters)).
-
-sort_khepri_clusters_by_size(KhepriCluster) ->
-    lists:sort(
-      fun([A], B) when A == node() ->
-              1 > length(B);
-         (A, B) -> length(A) >= length(B) end,
-      KhepriCluster).
-
-khepri_cluster_on_node(Node) ->
-    lists:sort(
-      rabbit_misc:rpc_call(Node, rabbit_khepri, nodes_if_khepri_enabled, [])).
+    rabbit_khepri:init_cluster().
 
 migrate_tables_to_khepri(FeatureName, TablesAndOwners) ->
     {Tables, _} = lists:unzip(TablesAndOwners),

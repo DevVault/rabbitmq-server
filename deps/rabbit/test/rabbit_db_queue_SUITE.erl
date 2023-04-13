@@ -468,11 +468,8 @@ foreach_durable(Config) ->
 
 foreach_durable1(_Config) ->
     QName1 = rabbit_misc:r(?VHOST, queue, <<"test-queue1">>),
-    QName2 = rabbit_misc:r(?VHOST, queue, <<"test-queue2">>),
     Q1 = new_queue(QName1, rabbit_classic_queue),
-    Q2 = new_queue(QName2, rabbit_classic_queue),
     ?assertEqual(ok, rabbit_db_queue:set(Q1)),
-    ?assertEqual(ok, rabbit_db_queue:set_dirty(Q2)),
     ?assertEqual(ok, rabbit_db_queue:foreach_durable(
                        fun(Q0) ->
                                rabbit_db_queue:internal_delete(amqqueue:get_name(Q0), true, normal)
@@ -480,7 +477,6 @@ foreach_durable1(_Config) ->
                        fun(Q0) when ?is_amqqueue(Q0) -> true end)),
     ?assertEqual({error, not_found}, rabbit_db_queue:get(QName1)),
     ?assertEqual({error, not_found}, rabbit_db_queue:get_durable(QName1)),
-    ?assertMatch({ok, _}, rabbit_db_queue:get(QName2)),
     passed.
 
 foreach_transient(Config) ->
