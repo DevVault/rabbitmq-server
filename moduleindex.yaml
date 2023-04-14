@@ -348,7 +348,8 @@ khepri_mnesia_migration:
 - m2k_table_copy_sup
 - m2k_table_copy_sup_sup
 - mnesia_to_khepri
-- mnesia_to_khepri_default_converter
+- mnesia_to_khepri_converter
+- mnesia_to_khepri_example_converter
 meck:
 - meck
 - meck_args_matcher
