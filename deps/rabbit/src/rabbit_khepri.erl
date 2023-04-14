@@ -94,6 +94,11 @@
 
 -compile({no_auto_import, [get/1, get/2, nodes/0]}).
 
+%% `sys:get_status/1''s spec only allows `sys:name()' but can work on any
+%% `erlang:send_destination()' including a `ra:server_id()'.
+-dialyzer({nowarn_function, get_sys_status/1}).
+-dialyzer({no_match, [status/0, cluster_status_from_khepri/0]}).
+
 -define(RA_SYSTEM, coordination).
 -define(RA_CLUSTER_NAME, metadata_store).
 -define(RA_FRIENDLY_NAME, "RabbitMQ metadata store").
@@ -157,8 +162,7 @@ add_member(JoiningNode, [_ | _] = Cluster) ->
             {ok, already_member}
     end.
 
-pick_node_in_cluster(Cluster) when is_list(Cluster) ->
-    ?assertNotEqual([], Cluster),
+pick_node_in_cluster([_ | _] = Cluster) when is_list(Cluster) ->
     ThisNode = node(),
     case lists:member(ThisNode, Cluster) of
         true  -> ThisNode;
@@ -404,6 +408,7 @@ status() ->
          end
      end || N <- Nodes].
 
+
 get_sys_status(Proc) ->
     try lists:nth(5, element(4, sys:get_status(Proc))) of
         Sys -> {ok, Sys}
@@ -540,7 +545,7 @@ check_cluster_consistency() ->
         {error, not_found} ->
             ok;
         {error, _} = E ->
-            throw(E)
+            E
     end.
 
 nodes_excl_me(Nodes) -> Nodes -- [node()].
