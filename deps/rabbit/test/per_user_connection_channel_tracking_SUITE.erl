@@ -27,7 +27,7 @@ groups() ->
         single_node_vhost_down_mimic,
         single_node_vhost_deletion
     ],
-    ClusterSize2Tests = [
+    ClusterSize3Tests = [
         cluster_user_deletion,
         cluster_vhost_down_mimic,
         cluster_vhost_deletion,
@@ -36,15 +36,15 @@ groups() ->
     [
      {mnesia_store, [], [
                          {cluster_size_1_network, [], ClusterSize1Tests},
-                         {cluster_size_2_network, [], ClusterSize2Tests},
+                         {cluster_size_3_network, [], ClusterSize3Tests},
                          {cluster_size_1_direct, [], ClusterSize1Tests},
-                         {cluster_size_2_direct, [], ClusterSize2Tests}
+                         {cluster_size_3_direct, [], ClusterSize3Tests}
                         ]},
      {khepri_store, [], [
                          {cluster_size_1_network, [], ClusterSize1Tests},
-                         {cluster_size_2_network, [], ClusterSize2Tests},
+                         {cluster_size_3_network, [], ClusterSize3Tests},
                          {cluster_size_1_direct, [], ClusterSize1Tests},
-                         {cluster_size_2_direct, [], ClusterSize2Tests}
+                         {cluster_size_3_direct, [], ClusterSize3Tests}
                         ]}
     ].
 
@@ -72,15 +72,15 @@ init_per_group(khepri_store, Config) ->
 init_per_group(cluster_size_1_network, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [{connection_type, network}]),
     init_per_multinode_group(cluster_size_1_network, Config1, 1);
-init_per_group(cluster_size_2_network, Config) ->
+init_per_group(cluster_size_3_network, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [{connection_type, network}]),
-    init_per_multinode_group(cluster_size_2_network, Config1, 2);
+    init_per_multinode_group(cluster_size_3_network, Config1, 3);
 init_per_group(cluster_size_1_direct, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [{connection_type, direct}]),
     init_per_multinode_group(cluster_size_1_direct, Config1, 1);
-init_per_group(cluster_size_2_direct, Config) ->
+init_per_group(cluster_size_3_direct, Config) ->
     Config1 = rabbit_ct_helpers:set_config(Config, [{connection_type, direct}]),
-    init_per_multinode_group(cluster_size_2_direct, Config1, 2).
+    init_per_multinode_group(cluster_size_3_direct, Config1, 3).
 
 init_per_multinode_group(_Group, Config, NodeCount) ->
     Suffix = rabbit_ct_helpers:testcase_absname(Config, "", "-"),
