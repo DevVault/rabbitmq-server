@@ -41,7 +41,10 @@
          on_node_down/1,
 
          %% Helpers for diagnostics commands
-         schema_info/1
+         schema_info/1,
+
+         start_mnesia/1,
+         stop_mnesia/0
         ]).
 
 %% Mnesia queries

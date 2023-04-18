@@ -72,7 +72,6 @@
 -export([do_join/1]).
 %% To add the current node to an existing cluster
 -export([check_join_cluster/1,
-         join_cluster/1,
          leave_cluster/1]).
 -export([is_clustered/0]).
 -export([check_cluster_consistency/0,
@@ -435,10 +434,26 @@ cli_cluster_status() ->
 init_cluster() ->
     %% Ensure the local Khepri store is running before we can join it. It
     %% could be stopped if RabbitMQ is not running for instance.
-    ok = setup(),
-    khepri:info(?RA_CLUSTER_NAME),
-    _ = application:ensure_all_started(khepri_mnesia_migration),
-    mnesia_to_khepri:sync_cluster_membership(?STORE_ID).
+    rabbit_log:debug("Khepri clustering: starting Mnesia..."),
+    IsRunning = rabbit_mnesia:is_running(),
+    try
+        case IsRunning of
+            true -> ok;
+            false -> rabbit_mnesia:start_mnesia(false)
+        end,
+        rabbit_log:debug("Khepri clustering: starting Khepri..."),
+        ok = setup(),
+        khepri:info(?RA_CLUSTER_NAME),
+        rabbit_log:debug("Khepri clustering: starting khepri_mnesia_migration..."),
+        _ = application:ensure_all_started(khepri_mnesia_migration),
+        rabbit_log:debug("Khepri clustering: syncing cluster membership"),
+        mnesia_to_khepri:sync_cluster_membership(?STORE_ID)
+    after
+        case IsRunning of
+            true -> ok;
+            false -> rabbit_mnesia:stop_mnesia()
+        end
+    end.
 
 %%%%%%%%
 %% TODO run_peer_discovery!!
@@ -451,31 +466,6 @@ check_join_cluster(DiscoveryNode) ->
             case check_cluster_consistency(DiscoveryNode, false) of
                 {ok, _S} ->
                     ok;
-                Error ->
-                    Error
-            end;
-        true ->
-            %% DiscoveryNode thinks that we are part of a cluster, but
-            %% do we think so ourselves?
-            case are_we_clustered_with(DiscoveryNode) of
-                true ->
-                    rabbit_log:info("Asked to join a cluster but already a member of it: ~tp", [ClusterNodes]),
-                    {ok, already_member};
-                false ->
-                    Msg = format_inconsistent_cluster_message(DiscoveryNode, node()),
-                    rabbit_log:error(Msg),
-                    {error, {inconsistent_cluster, Msg}}
-            end
-    end.
-
-join_cluster(DiscoveryNode) ->
-    {ClusterNodes, _} = discover_cluster([DiscoveryNode]),
-    case me_in_nodes(ClusterNodes) of
-        false ->
-            case check_cluster_consistency(DiscoveryNode, false) of
-                {ok, _S} ->
-                    ThisNode = node(),
-                    retry_khepri_op(fun() -> add_member(ThisNode, [DiscoveryNode]) end, 60);
                 Error ->
                     Error
             end;
