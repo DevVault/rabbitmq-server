@@ -20,10 +20,12 @@
         ]).
 
 -export([mds_migration_enable/1,
-         mds_migration_post_enable/1,
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
+         mds_migration_post_enable/1]).
+
+-export([
+         khepri_jms_topic_exchange_path/0,
+         khepri_jms_topic_exchange_path/1
+        ]).
 
 -rabbit_feature_flag(
    {rabbit_jms_topic_exchange_raft_based_metadata_store,
@@ -193,42 +195,12 @@ write_state_fun_in_mnesia(XName, BFuns) ->
 %% -------------------------------------------------------------------
 
 mds_migration_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?JMS_TOPIC_TABLE, ?MODULE}],
-    rabbit_core_ff:mds_migration_enable(FeatureName, TablesAndOwners).
+    TablesAndOwners = [{[?JMS_TOPIC_TABLE], rabbit_db_jms_exchange_m2k_converter}],
+    rabbit_core_ff:mds_plugin_migration_enable(FeatureName, TablesAndOwners).
 
 mds_migration_post_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?JMS_TOPIC_TABLE, ?MODULE}],
+    TablesAndOwners = [{[?JMS_TOPIC_TABLE], rabbit_db_jms_exchange_m2k_converter}],
     rabbit_core_ff:mds_migration_post_enable(FeatureName, TablesAndOwners).
-
-clear_data_in_khepri(?JMS_TOPIC_TABLE) ->
-    case rabbit_khepri:delete(khepri_jms_topic_exchange_path()) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
-
-mnesia_write_to_khepri(?JMS_TOPIC_TABLE, #?JMS_TOPIC_RECORD{x_name = XName, x_selector_funs = BFuns}) ->
-    case rabbit_khepri:create(khepri_jms_topic_exchange_path(XName), BFuns) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
-        Error -> throw(Error)
-    end.
-
-mnesia_delete_to_khepri(?JMS_TOPIC_TABLE, #?JMS_TOPIC_RECORD{x_name = XName}) ->
-    case rabbit_khepri:delete(khepri_jms_topic_exchange_path(XName)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end;
-mnesia_delete_to_khepri(?JMS_TOPIC_TABLE, Key) ->
-    case rabbit_khepri:delete(khepri_jms_topic_exchange_path(Key)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
 
 %% -------------------------------------------------------------------
 %% dictionary handling

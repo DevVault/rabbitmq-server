@@ -44,12 +44,15 @@
          path/1
          ]).
 
--export([mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
-
 %% For testing
 -export([clear/0]).
+
+-export([
+         khepri_exchange_path/1,
+         khepri_exchange_serial_path/1,
+         khepri_exchanges_path/0,
+         khepri_exchange_serials_path/0
+        ]).
 
 -define(MNESIA_TABLE, rabbit_exchange).
 -define(MNESIA_DURABLE_TABLE, rabbit_durable_exchange).
@@ -772,87 +775,6 @@ exists_in_mnesia(Name) ->
 exists_in_khepri(Name) ->
     rabbit_khepri:exists(khepri_exchange_path(Name)).
 
-%% --------------------------------------------------------------
-%% Migration
-%% --------------------------------------------------------------
-
--spec mnesia_write_to_khepri(Table, [Queue]) -> ok when
-      Table :: atom(),
-      Queue :: amqqueue:amqqueue().
-%% Mnesia contains two tables if an exchange has been recovered:
-%% rabbit_exchange (ram) and rabbit_durable_exchange (disc).
-%% As all data in Khepri is persistent, there is no point on
-%% having ram and data entries.
-%% How do we then transform data from mnesia to khepri when
-%% the feature flag is enabled?
-%% Let's create the Khepri entry from the ram table.
-
-mnesia_write_to_khepri(rabbit_exchange, Exchanges) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [khepri_create_tx(khepri_exchange_path(Exchange#exchange.name), Exchange)
-               || Exchange <- Exchanges]
-      end, rw);                       
-mnesia_write_to_khepri(rabbit_durable_exchange, _Exchange0) ->
-    ok;
-mnesia_write_to_khepri(rabbit_exchange_serial, Exchanges) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   #exchange_serial{name = Resource, next = Serial} = Exchange,
-                   Path = khepri_path:combine_with_conditions(
-                            khepri_exchange_serial_path(Resource),
-                            [#if_node_exists{exists = false}]),
-                   case khepri_tx:put(Path, Serial) of
-                       ok -> ok;
-                       Error -> throw(Error)
-                   end
-               end || Exchange <- Exchanges]
-      end, rw).
-
-khepri_create_tx(Path, Value) ->
-    case khepri_tx:create(Path, Value) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
-        Error -> throw(Error)
-    end.
-
--spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
-      Table :: atom(),
-      ToDelete :: amqqueue:amqqueue() | rabbit_amqqueue:name().
-
-mnesia_delete_to_khepri(rabbit_exchange, Exchange) when is_record(Exchange, exchange) ->
-    khepri_delete(khepri_exchange_path(Exchange#exchange.name));
-mnesia_delete_to_khepri(rabbit_exchange, Name) ->
-    khepri_delete(khepri_exchange_path(Name));
-mnesia_delete_to_khepri(rabbit_durable_exchange, Exchange)
-  when is_record(Exchange, exchange) ->
-    khepri_delete(khepri_exchange_path(Exchange#exchange.name));
-mnesia_delete_to_khepri(rabbit_durable_exchange, Name) ->
-    khepri_delete(khepri_exchange_path(Name));
-mnesia_delete_to_khepri(rabbit_exchange_serial, ExchangeSerial)
-  when is_record(ExchangeSerial, exchange_serial) ->
-    khepri_delete(khepri_exchange_serial_path(ExchangeSerial#exchange_serial.name));
-mnesia_delete_to_khepri(rabbit_exchange_serial, Name) ->
-    khepri_delete(khepri_exchange_serial_path(Name)).
-
--spec clear_data_in_khepri(Table) -> ok when
-      Table :: atom().
-
-clear_data_in_khepri(rabbit_exchange) ->
-    khepri_delete(khepri_exchanges_path());
-%% There is a single khepri entry for exchanges and it should be already deleted
-clear_data_in_khepri(rabbit_durable_exchange) ->
-    ok;
-clear_data_in_khepri(rabbit_exchange_serial) ->
-    khepri_delete(khepri_exchange_serials_path()).
-
-khepri_delete(Path) ->
-    case rabbit_khepri:delete(Path) of
-        ok -> ok;
-        Error -> throw(Error)
-    end.
-
 %% -------------------------------------------------------------------
 %% clear().
 %% -------------------------------------------------------------------
@@ -877,6 +799,12 @@ clear_in_mnesia() ->
 clear_in_khepri() ->
     khepri_delete(khepri_exchanges_path()),
     khepri_delete(khepri_exchange_serials_path()).    
+
+khepri_delete(Path) ->
+    case rabbit_khepri:delete(Path) of
+        ok -> ok;
+        Error -> throw(Error)
+    end.
 
 %% -------------------------------------------------------------------
 %% maybe_auto_delete_in_mnesia().

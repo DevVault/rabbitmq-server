@@ -32,11 +32,10 @@
          clear_matching_topic_permissions/3,
          delete/1]).
 
--export([clear_data_in_khepri/1,
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2]).
-
--export([khepri_users_path/0]).
+-export([khepri_users_path/0,
+         khepri_user_path/1,
+         khepri_user_permission_path/2,
+         khepri_topic_permission_path/3]).
 
 %% for testing
 -export([clear/0]).
@@ -994,113 +993,7 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    khepri_delete(khepri_users_path()).
-
-%% -------------------------------------------------------------------
-%% Migration
-%% -------------------------------------------------------------------
-
--spec mnesia_write_to_khepri(Table, [Queue]) -> ok when
-      Table :: atom(),
-      Queue :: amqqueue:amqqueue().
-
-mnesia_write_to_khepri(rabbit_user, Users) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Username = internal_user:get_username(User),
-                   Path = khepri_user_path(Username),
-                   case khepri_tx:put(Path, User) of
-                       ok    -> ok;
-                       Error -> throw(Error)
-                   end
-               end || User <- Users, ?is_internal_user(User)]
-      end, rw);
-mnesia_write_to_khepri(rabbit_user_permission, UserPermissions) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Path = khepri_user_permission_path(
-                            #if_all{conditions =
-                                        [Username,
-                                         #if_node_exists{exists = true}]},
-                            VHost),
-                   Extra = #{keep_while =>
-                                 #{rabbit_db_vhost:khepri_vhost_path(VHost) =>
-                                       #if_node_exists{exists = true}}},
-                   case khepri_tx:put(Path, UserPermission, Extra) of
-                       ok      -> ok;
-                       Error   -> throw(Error)
-                   end
-               end || #user_permission{
-                         user_vhost = #user_vhost{
-                                         username = Username,
-                                         virtual_host = VHost}} = UserPermission <- UserPermissions]
-      end, rw);
-mnesia_write_to_khepri(rabbit_topic_permission, TopicPermissions) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Path = khepri_topic_permission_path(
-                            #if_all{conditions =
-                                        [Username,
-                                         #if_node_exists{exists = true}]},
-                            VHost,
-                            Exchange),
-                   Extra = #{keep_while =>
-                                 #{rabbit_db_vhost:khepri_vhost_path(VHost) =>
-                                       #if_node_exists{exists = true}}},
-                   case khepri_tx:put(Path, TopicPermission, Extra) of
-                       ok      -> ok;
-                       Error   -> throw(Error)
-                   end
-               end || #topic_permission{
-                         topic_permission_key =
-                             #topic_permission_key{
-                                user_vhost = #user_vhost{
-                                                username = Username,
-                                                virtual_host = VHost},
-                                exchange = Exchange}} = TopicPermission <- TopicPermissions]
-      end, rw).
-
--spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
-      Table :: atom(),
-      ToDelete :: amqqueue:amqqueue() | rabbit_amqqueue:name().
-
-mnesia_delete_to_khepri(rabbit_user, Record) ->
-    %% The record and the Mnesia table have different names.
-    User = erlang:setelement(1, Record, internal_user),
-    true = ?is_internal_user(User),
-    Username = internal_user:get_username(User),
-    Path = khepri_user_path(Username),
-    khepri_delete(Path);
-mnesia_delete_to_khepri(rabbit_user_permission,
-                        #user_permission{
-                           user_vhost = #user_vhost{
-                                           username = Username,
-                                           virtual_host = VHost}}) ->
-    Path = khepri_user_permission_path(Username, VHost),
-    khepri_delete(Path);
-mnesia_delete_to_khepri(rabbit_topic_permission,
-                        #topic_permission{
-                           topic_permission_key =
-                               #topic_permission_key{
-                                  user_vhost = #user_vhost{
-                                                  username = Username,
-                                                  virtual_host = VHost},
-                                  exchange = Exchange}}) ->
-    Path = khepri_topic_permission_path(Username, VHost, Exchange),
-    khepri_delete(Path).
-
--spec clear_data_in_khepri(Table) -> ok when
-      Table :: atom().
-
-clear_data_in_khepri(rabbit_user) ->
-    khepri_delete(khepri_users_path());
-clear_data_in_khepri(_) ->
-    ok.
-
-khepri_delete(Path) ->
+    Path = khepri_users_path(),
     case rabbit_khepri:delete(Path) of
         ok    -> ok;
         Error -> throw(Error)

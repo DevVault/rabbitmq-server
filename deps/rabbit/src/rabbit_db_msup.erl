@@ -8,6 +8,7 @@
 -module(rabbit_db_msup).
 
 -include_lib("khepri/include/khepri.hrl").
+-include("mirrored_supervisor.hrl").
 
 -export([
          create_tables/0,
@@ -21,9 +22,10 @@
 
 -export([clear/0]).
 
--export([mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
+-export([
+         khepri_mirrored_supervisor_path/2,
+         khepri_mirrored_supervisor_path/0
+        ]).
 
 -define(TABLE, mirrored_sup_childspec).
 -define(TABLE_DEF,
@@ -32,8 +34,6 @@
           {type, ordered_set},
           {attributes, record_info(fields, mirrored_sup_childspec)}]}).
 -define(TABLE_MATCH, {match, #mirrored_sup_childspec{ _ = '_' }}).
-
--record(mirrored_sup_childspec, {key, mirroring_pid, childspec}).
 
 %% -------------------------------------------------------------------
 %% create_tables().
@@ -311,38 +311,9 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    khepri_delete(khepri_mirrored_supervisor_path()).
-
-khepri_delete(Path) ->
+    Path = khepri_mirrored_supervisor_path(),
     case rabbit_khepri:delete(Path) of
         ok -> ok;
-        Error -> throw(Error)
-    end.
-
-%% -------------------------------------------------------------------
-%% migration
-%% -------------------------------------------------------------------
-
-mnesia_write_to_khepri(?TABLE, Specs) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [khepri_create_tx(khepri_mirrored_supervisor_path(Group, SimpleId),
-                                Spec)
-               || #mirrored_sup_childspec{key = {Group, {SimpleId, _}}} = Spec <- Specs]
-      end, rw).
-
-mnesia_delete_to_khepri(?TABLE, #mirrored_sup_childspec{key = {Group, Id}}) ->
-    khepri_delete(khepri_mirrored_supervisor_path(Group, Id));
-mnesia_delete_to_khepri(?TABLE, {Group, Id}) ->
-    khepri_delete(khepri_mirrored_supervisor_path(Group, Id)).
-
-clear_data_in_khepri(?TABLE) ->
-    khepri_delete(khepri_mirrored_supervisor_path()).
-
-khepri_create_tx(Path, Value) ->
-    case khepri_tx:create(Path, Value) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
         Error -> throw(Error)
     end.
 

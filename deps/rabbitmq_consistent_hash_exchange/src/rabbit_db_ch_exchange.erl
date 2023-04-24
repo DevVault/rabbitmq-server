@@ -20,11 +20,12 @@
         ]).
 
 -export([mds_migration_enable/1,
-         mds_migration_post_enable/1,
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
+         mds_migration_post_enable/1]).
 
+-export([
+         khepri_consistent_hash_path/0,
+         khepri_consistent_hash_path/1
+        ]).
 
 -rabbit_feature_flag(
    {rabbit_consistent_hash_exchange_raft_based_metadata_store,
@@ -229,42 +230,12 @@ delete_binding_in_khepri(#binding{source = S, destination = D}, DeleteFun) ->
     end.
 
 mds_migration_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?HASH_RING_STATE_TABLE, ?MODULE}],
-    rabbit_core_ff:mds_migration_enable(FeatureName, TablesAndOwners).
+    TablesAndOwners = [{[?HASH_RING_STATE_TABLE], rabbit_db_ch_exchange_m2k_converter}],
+    rabbit_core_ff:mds_plugin_migration_enable(FeatureName, TablesAndOwners).
 
 mds_migration_post_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?HASH_RING_STATE_TABLE, ?MODULE}],
+    TablesAndOwners = [{[?HASH_RING_STATE_TABLE], rabbit_db_ch_exchange_m2k_converter}],
     rabbit_core_ff:mds_migration_post_enable(FeatureName, TablesAndOwners).
-
-clear_data_in_khepri(?HASH_RING_STATE_TABLE) ->
-    case rabbit_khepri:delete(khepri_consistent_hash_path()) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
-
-mnesia_write_to_khepri(?HASH_RING_STATE_TABLE, #chx_hash_ring{exchange = XName} = Record) ->
-    case rabbit_khepri:create(khepri_consistent_hash_path(XName), Record) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
-        Error -> throw(Error)
-    end.
-
-mnesia_delete_to_khepri(?HASH_RING_STATE_TABLE, #chx_hash_ring{exchange = XName}) ->
-    case rabbit_khepri:delete(khepri_consistent_hash_path(XName)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end;
-mnesia_delete_to_khepri(?HASH_RING_STATE_TABLE, Key) ->
-    case rabbit_khepri:delete(khepri_consistent_hash_path(Key)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
 
 khepri_consistent_hash_path(#exchange{name = Name}) ->
     khepri_consistent_hash_path(Name);

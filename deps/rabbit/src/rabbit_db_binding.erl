@@ -35,9 +35,11 @@
          match_source_and_destination_in_khepri_tx/2
         ]).
 
--export([mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
+-export([
+         khepri_route_path/1,
+         khepri_routes_path/0,
+         khepri_route_exchange_path/1
+        ]).
 
 %% Recovery is only needed for transient entities. Once mnesia is removed, these
 %% functions can be deleted
@@ -901,91 +903,6 @@ match_source_and_destination_in_khepri_tx(#resource{virtual_host = VHost, name =
         _         -> []
     end.
 
-%% --------------------------------------------------------------
-%% Migration
-%% --------------------------------------------------------------
-
--spec mnesia_write_to_khepri(Table, [Route]) -> ok when
-      Table :: atom(),
-      Route :: #route{}.
-mnesia_write_to_khepri(rabbit_route, Routes)->
-    rabbit_khepri:transaction(
-      fun() ->
-              _ = lists:foldl(
-                    fun(Route, Xs0) ->
-                            #route{binding = #binding{source = XName} = Binding} = Route,
-                            Path = khepri_route_path(Binding),
-                            Xs =
-                            case sets:is_element(XName, Xs0) of
-                                true ->
-                                    Xs0;
-                                false ->
-                                    %% If the binding's source is a new exchange,
-                                    %% store the exchange's type in the exchange
-                                    %% name branch of the tree.
-                                    XPath = khepri_route_exchange_path(XName),
-                                    [#exchange{type = XType}] =
-                                    rabbit_db_exchange:get_in_khepri_tx(XName),
-                                    ok = khepri_tx:put(XPath, #{type => XType}),
-                                    sets:add_element(XName, Xs0)
-                            end,
-                            add_binding_tx(Path, Binding),
-                            Xs
-                    end, sets:new([{version, 2}]), Routes),
-              ok
-      end, rw);
-mnesia_write_to_khepri(rabbit_durable_route, _)->
-    ok;
-mnesia_write_to_khepri(rabbit_semi_durable_route, _)->
-    ok;
-mnesia_write_to_khepri(rabbit_reverse_route, _) ->
-    ok.
-
-add_binding_tx(Path, Binding) ->
-    Set = case khepri_tx:get(Path) of
-              {ok, Set0} ->
-                  Set0;
-              _ ->
-                  sets:new()
-          end,
-    ok = khepri_tx:put(Path, sets:add_element(Binding, Set)).
-
--spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
-      Table :: atom(),
-      ToDelete :: #route{} | rabbit_types:binding().
-
-mnesia_delete_to_khepri(rabbit_route, Route) when is_record(Route, route) ->
-    khepri_delete(khepri_route_path(Route#route.binding));
-mnesia_delete_to_khepri(rabbit_route, Name) ->
-    khepri_delete(khepri_route_path(Name));
-mnesia_delete_to_khepri(rabbit_durable_route, Route) when is_record(Route, route) ->
-    khepri_delete(khepri_route_path(Route#route.binding));
-mnesia_delete_to_khepri(rabbit_durable_route, Name) ->
-    khepri_delete(khepri_route_path(Name));
-mnesia_delete_to_khepri(rabbit_semi_durable_route, Route) when is_record(Route, route) ->
-    khepri_delete(khepri_route_path(Route#route.binding));
-mnesia_delete_to_khepri(rabbit_semi_durable_route, Name) ->
-    khepri_delete(khepri_route_path(Name)).
-
--spec clear_data_in_khepri(Table) -> ok when
-      Table :: atom().
-
-clear_data_in_khepri(rabbit_route) ->
-    khepri_delete(khepri_routes_path());
-%% There is a single khepri entry for routes and it should be already deleted
-clear_data_in_khepri(rabbit_durable_route) ->
-    ok;
-clear_data_in_khepri(rabbit_semi_durable_route) ->
-    ok;
-clear_data_in_khepri(rabbit_reverse_route) ->
-    ok.
-
-khepri_delete(Path) ->
-    case rabbit_khepri:delete(Path) of
-        ok -> ok;
-        Error -> throw(Error)
-    end.
-
 %% -------------------------------------------------------------------
 %% clear().
 %% -------------------------------------------------------------------
@@ -1009,8 +926,11 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    khepri_delete(khepri_routes_path()),
-    ok.
+    Path = rabbit_db_binding:khepri_routes_path(),
+    case rabbit_khepri:delete(Path) of
+        ok -> ok;
+        Error -> throw(Error)
+    end.
 
 %% --------------------------------------------------------------
 %% Paths

@@ -29,10 +29,6 @@
 -export([khepri_vhost_path/1,
          khepri_vhosts_path/0]).
 
--export([clear_data_in_khepri/1,
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2]).
-
 %% For testing
 -export([clear/0]).
 
@@ -475,46 +471,7 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    khepri_delete(khepri_vhosts_path()).
-
-%% -------------------------------------------------------------------
-%% migration().
-%% -------------------------------------------------------------------
-
--spec mnesia_write_to_khepri(Table, [Queue]) -> ok when
-      Table :: atom(),
-      Queue :: amqqueue:amqqueue().
-
-mnesia_write_to_khepri(rabbit_vhost, VHosts) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Name = vhost:get_name(VHost),
-                   Path = khepri_vhost_path(Name),
-                   case khepri_tx:put(Path, VHost) of
-                       ok    -> ok;
-                       Error -> throw(Error)
-                   end
-               end || VHost <- VHosts]
-      end).
-
--spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
-      Table :: atom(),
-      ToDelete :: vhost:vhost().
-
-mnesia_delete_to_khepri(rabbit_vhost, VHost) when ?is_vhost(VHost) ->
-    Name = vhost:get_name(VHost),
-    Path = khepri_vhost_path(Name),
-    khepri_delete(Path).
-
--spec clear_data_in_khepri(Table) -> ok when
-      Table :: atom().
-
-clear_data_in_khepri(rabbit_vhost) ->
     Path = khepri_vhosts_path(),
-    khepri_delete(Path).
-
-khepri_delete(Path) ->
     case rabbit_khepri:delete(Path) of
         ok    -> ok;
         Error -> throw(Error)

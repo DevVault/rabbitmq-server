@@ -15,12 +15,6 @@
          delete/1,
          match/2]).
 
--export([
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1
-        ]).
-
 %% These functions are used to process mnesia deletion events generated during the
 %% migration from mnesia to khepri
 -export([
@@ -151,22 +145,6 @@ match_in_mnesia(XName, RoutingKey) ->
 match_in_khepri(XName, RoutingKey) ->
     Words = split_topic_key(RoutingKey),
     trie_match_in_khepri(XName, Words).
-
-%% --------------------------------------------------------------
-%% Migration
-%% --------------------------------------------------------------
-
-%% Nothing to do, the `rabbit_db_binding' migration creates the topic
-%% graph projection in Khepri which replaces this data.
-
-mnesia_write_to_khepri(_Table, _Records) ->
-    ok.
-
-mnesia_delete_to_khepri(_Table, _Record) ->
-    ok.
-
-clear_data_in_khepri(_Table) ->
-    ok.
 
 %% -------------------------------------------------------------------
 %% clear().

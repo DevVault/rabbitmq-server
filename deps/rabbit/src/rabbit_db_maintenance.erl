@@ -16,9 +16,10 @@
          get_consistent/1
         ]).
 
--export([mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
+-export([
+         khepri_maintenance_path/1,
+         khepri_maintenance_path/0
+        ]).
 
 -define(TABLE, rabbit_node_maintenance_states).
 
@@ -159,39 +160,6 @@ get_consistent_in_khepri(Node) ->
             Status;
         _ ->
             undefined
-    end.
-
-%% -------------------------------------------------------------------
-%% migration
-%% -------------------------------------------------------------------
-
-mnesia_write_to_khepri(?TABLE, States) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [khepri_create_tx(khepri_maintenance_path(State#node_maintenance_state.node),
-                                State)
-               || State <- States]
-      end, rw).
-
-mnesia_delete_to_khepri(?TABLE, State) when is_record(State, node_maintenance_state) ->
-    khepri_delete(khepri_maintenance_path(State#node_maintenance_state.node));
-mnesia_delete_to_khepri(?TABLE, Node) ->
-    khepri_delete(khepri_maintenance_path(Node)).
-
-clear_data_in_khepri(?TABLE) ->
-    khepri_delete(khepri_maintenance_path()).
-
-khepri_delete(Path) ->
-    case rabbit_khepri:delete(Path) of
-        ok -> ok;
-        Error -> throw(Error)
-    end.
-
-khepri_create_tx(Path, Value) ->
-    case khepri_tx:create(Path, Value) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
-        Error -> throw(Error)
     end.
 
 %% -------------------------------------------------------------------

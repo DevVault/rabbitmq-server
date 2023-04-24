@@ -67,12 +67,13 @@
          get_in_khepri_tx/1
         ]).
 
--export([mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1]).
-
 %% For testing
 -export([clear/0]).
+
+-export([
+         khepri_queue_path/1,
+         khepri_queues_path/0
+        ]).
 
 -define(MNESIA_TABLE, rabbit_queue).
 -define(MNESIA_DURABLE_TABLE, rabbit_durable_queue).
@@ -1103,58 +1104,11 @@ clear_in_mnesia() ->
     ok.
 
 clear_in_khepri() ->
-    khepri_delete(khepri_queues_path()).
-
-khepri_delete(Path) ->
+    Path = khepri_queues_path(),
     case rabbit_khepri:delete(Path) of
         ok -> ok;
         Error -> throw(Error)
     end.
-
-%% --------------------------------------------------------------
-%% Feature flags
-%% --------------------------------------------------------------
-
--spec mnesia_write_to_khepri(Table, [Queue]) -> ok when
-      Table :: atom(),
-      Queue :: amqqueue:amqqueue().
-
-mnesia_write_to_khepri(rabbit_queue, Qs) ->
-    rabbit_khepri:transaction(
-      fun() ->
-              [begin
-                   Path = khepri_queue_path(amqqueue:get_name(Q)),
-                   case khepri_tx:create(Path, Q) of
-                       ok -> ok;
-                       {error, {khepri, mismatching_node, _}} -> ok;
-                       Error -> throw(Error)
-                   end
-               end || Q <- Qs]
-      end, rw);
-mnesia_write_to_khepri(rabbit_durable_queue, _Qs) ->
-    %% All durable queues are on the `rabbit_queue` table too
-    ok.
-
--spec mnesia_delete_to_khepri(Table, ToDelete) -> ok when
-      Table :: atom(),
-      ToDelete :: amqqueue:amqqueue() | rabbit_amqqueue:name().
-
-mnesia_delete_to_khepri(rabbit_queue, Q) when ?is_amqqueue(Q) ->
-    khepri_delete(khepri_queue_path(amqqueue:get_name(Q)));
-mnesia_delete_to_khepri(rabbit_queue, Name) when is_record(Name, resource) ->
-    khepri_delete(khepri_queue_path(Name));
-mnesia_delete_to_khepri(rabbit_durable_queue, Q) when ?is_amqqueue(Q) ->
-    khepri_delete(khepri_queue_path(amqqueue:get_name(Q)));
-mnesia_delete_to_khepri(rabbit_durable_queue, Name) when is_record(Name, resource) ->
-    khepri_delete(khepri_queue_path(Name)).
-
--spec clear_data_in_khepri(Table) -> ok when
-      Table :: atom().
-
-clear_data_in_khepri(rabbit_queue) ->
-    khepri_delete(khepri_queues_path());
-clear_data_in_khepri(rabbit_durable_queue) ->
-    khepri_delete(khepri_queues_path()).
 
 %% --------------------------------------------------------------
 %% Internal

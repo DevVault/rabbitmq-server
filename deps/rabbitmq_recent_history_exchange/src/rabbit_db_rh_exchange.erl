@@ -22,11 +22,8 @@
 -export([mds_migration_enable/1,
          mds_migration_post_enable/1]).
 
--export([
-         mnesia_write_to_khepri/2,
-         mnesia_delete_to_khepri/2,
-         clear_data_in_khepri/1
-        ]).
+-export([khepri_recent_history_path/1,
+         khepri_recent_history_path/0]).
 
 -rabbit_feature_flag(
    {rabbit_recent_history_exchange_raft_based_metadata_store,
@@ -179,42 +176,12 @@ delete_in_khepri(XName) ->
 %% migration
 %% -------------------------------------------------------------------
 mds_migration_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?RH_TABLE, ?MODULE}],
-    rabbit_core_ff:mds_migration_enable(FeatureName, TablesAndOwners).
+    TablesAndOwners = [{[?RH_TABLE], rabbit_db_rh_exchange_m2k_converter}],
+    rabbit_core_ff:mds_plugin_migration_enable(FeatureName, TablesAndOwners).
 
 mds_migration_post_enable(#{feature_name := FeatureName}) ->
-    TablesAndOwners = [{?RH_TABLE, ?MODULE}],
+    TablesAndOwners = [{[?RH_TABLE], rabbit_db_rh_exchange_m2k_converter}],
     rabbit_core_ff:mds_migration_post_enable(FeatureName, TablesAndOwners).
-
-clear_data_in_khepri(?RH_TABLE) ->
-    case rabbit_khepri:delete(khepri_recent_history_path()) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
-
-mnesia_write_to_khepri(?RH_TABLE, #cached{key = Key, content = Content}) ->
-    case rabbit_khepri:create(khepri_recent_history_path(Key), Content) of
-        ok -> ok;
-        {error, {khepri, mismatching_node, _}} -> ok;
-        Error -> throw(Error)
-    end.
-
-mnesia_delete_to_khepri(?RH_TABLE, #cached{key = Key}) ->
-    case rabbit_khepri:delete(khepri_recent_history_path(Key)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end;
-mnesia_delete_to_khepri(?RH_TABLE, Key) ->
-    case rabbit_khepri:delete(khepri_recent_history_path(Key)) of
-        ok ->
-            ok;
-        Error ->
-            throw(Error)
-    end.
 
 %% -------------------------------------------------------------------
 %% paths
