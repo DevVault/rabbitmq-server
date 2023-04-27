@@ -74,13 +74,13 @@ filegroup(
     name = "private_hdrs",
     srcs = [
         "src/kmm_error.hrl",
-        "src/kmm_logging.hrl",
+        # "src/kmm_logging.hrl", # keep
     ],
 )
 
 filegroup(
     name = "public_hdrs",
-    srcs = glob(["include/**/*.hrl"]),
+    srcs = ["src/kmm_logging.hrl"] + glob(["include/**/*.hrl"]), # keep
 )
 
 filegroup(
