@@ -30,7 +30,7 @@
       Priv :: #?MODULE{}.
 %% @private
 
-init_copy_to_khepri(Tables, StoreId) ->
+init_copy_to_khepri(_Tables, StoreId) ->
     State = #?MODULE{store_id = StoreId},
     {ok, State}.
 
