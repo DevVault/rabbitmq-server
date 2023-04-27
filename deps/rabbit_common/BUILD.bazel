@@ -130,11 +130,6 @@ rabbitmq_app(
         "@recon//:erlang_app",
         "@thoas//:erlang_app",
     ],
-<<<<<<< HEAD
-=======
-    runtime_deps = RUNTIME_DEPS,
-    deps = DEPS,
->>>>>>> 0405503343 (Khepri: The One Commit)
 )
 
 xref(

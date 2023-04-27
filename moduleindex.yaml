@@ -45,6 +45,8 @@ amqp10_common:
 - amqp10_binary_parser
 - amqp10_framing
 - amqp10_framing0
+app:
+- appup_src
 aten:
 - aten
 - aten_app
@@ -55,6 +57,15 @@ aten:
 - aten_sup
 base64url:
 - base64url
+bazdep:
+- bazdep
+certifi:
+- certifi
+- certifi_pt
+codepath:
+- codepath
+cover:
+- foo
 cowboy:
 - cowboy
 - cowboy_app
@@ -111,6 +122,9 @@ credentials_obfuscation:
 ct_helper:
 - ct_helper
 - ct_helper_error_h
+- erl_make_certs
+cth_styledout:
+- cth_styledout
 cuttlefish:
 - conf_parse
 - cuttlefish
@@ -135,6 +149,10 @@ cuttlefish:
 - cuttlefish_validator
 - cuttlefish_variable
 - cuttlefish_vmargs
+dummy:
+- dummy_app
+- dummy_server
+- dummy_sup
 eetcd:
 - eetcd_auth_gen
 - eetcd_cluster_gen
@@ -183,10 +201,33 @@ emqtt:
 - emqtt_ws
 enough:
 - enough
+erlc:
+- first_erl
+- foo
+- foo_app
+- foo_test_worker
+- foo_worker
+eunit:
+- foo
+eunit_formatters:
+- binomial_heap
+- eunit_progress
+eunit_surefire:
+- foo
+foo:
+- java
+- lisp
+- pascal
+- perl
+foodep:
+- foodep
 gen_batch_server:
 - gen_batch_server
 getopt:
 - getopt
+gpb:
+- gpb
+- gpb_compile
 gun:
 - gun
 - gun_app
@@ -200,6 +241,51 @@ gun:
 - gun_tls
 - gun_ws
 - gun_ws_h
+hackney:
+- hackney
+- hackney_app
+- hackney_bstr
+- hackney_connect
+- hackney_connection
+- hackney_connections
+- hackney_cookie
+- hackney_date
+- hackney_headers
+- hackney_headers_new
+- hackney_http
+- hackney_http_connect
+- hackney_local_tcp
+- hackney_manager
+- hackney_metrics
+- hackney_multipart
+- hackney_pool
+- hackney_pool_handler
+- hackney_request
+- hackney_response
+- hackney_socks5
+- hackney_ssl
+- hackney_ssl_certificate
+- hackney_stream
+- hackney_sup
+- hackney_tcp
+- hackney_trace
+- hackney_url
+- hackney_util
+horus:
+- horus
+- horus_cover
+- horus_utils
+host_triple:
+- host_triple
+idna:
+- idna
+- idna_bidi
+- idna_context
+- idna_data
+- idna_mapping
+- idna_table
+- idna_ucs
+- punycode
 inet_tcp_proxy_dist:
 - inet_tcp_proxy_dist
 - inet_tcp_proxy_dist_app
@@ -323,7 +409,6 @@ khepri:
 - khepri_event_handler
 - khepri_evf
 - khepri_export_erlang
-- khepri_fun
 - khepri_import_export
 - khepri_machine
 - khepri_path
@@ -350,6 +435,26 @@ khepri_mnesia_migration:
 - mnesia_to_khepri
 - mnesia_to_khepri_converter
 - mnesia_to_khepri_example_converter
+looking_glass:
+- lg
+- lg_callgrind
+- lg_file_reader
+- lg_file_tracer
+- lg_flame
+- lg_messages
+- lg_messages_seqdiag
+- lg_rabbit_hole
+- lg_raw_console_tracer
+- lg_socket_client
+- lg_socket_tracer
+- lg_term
+- lg_tracer
+- lg_tracer_pool
+- looking_glass_app
+- looking_glass_sup
+lz4:
+- lz4_nif
+- lz4f
 meck:
 - meck
 - meck_args_matcher
@@ -362,8 +467,18 @@ meck:
 - meck_proc
 - meck_ret_spec
 - meck_util
+metrics:
+- metrics
+- metrics_dummy
+- metrics_exometer
+- metrics_folsom
+mimerl:
+- mimerl
 my_plugin:
 - my_plugin
+neotoma:
+- neotoma
+- neotoma_parse
 observer_cli:
 - observer_cli
 - observer_cli_application
@@ -395,6 +510,13 @@ osiris:
 - osiris_tracking
 - osiris_util
 - osiris_writer
+parse_trans:
+- ct_expand
+- exprecs
+- parse_trans
+- parse_trans_codegen
+- parse_trans_mod
+- parse_trans_pp
 prometheus:
 - prometheus_mnesia_collector
 - prometheus_vm_dist_collector
@@ -453,6 +575,17 @@ proper:
 - proper_unicode
 - proper_unused_imports_remover
 - vararg
+proto_gpb:
+- foo
+- foo_app
+- foo_sup
+proto_protobuffs:
+- foo
+- foo_app
+- foo_sup
+protobuffs:
+- protobuffs
+- protobuffs_compile
 quantile_estimator:
 - quantile
 - quantile_estimator
@@ -550,17 +683,25 @@ rabbit:
 - rabbit_cuttlefish
 - rabbit_db
 - rabbit_db_binding
+- rabbit_db_binding_m2k_converter
 - rabbit_db_cluster
 - rabbit_db_exchange
+- rabbit_db_exchange_m2k_converter
 - rabbit_db_maintenance
+- rabbit_db_maintenance_m2k_converter
 - rabbit_db_msup
+- rabbit_db_msup_m2k_converter
 - rabbit_db_policy
 - rabbit_db_queue
+- rabbit_db_queue_m2k_converter
 - rabbit_db_rtparams
+- rabbit_db_rtparams_m2k_converter
 - rabbit_db_topic_exchange
 - rabbit_db_user
+- rabbit_db_user_m2k_converter
 - rabbit_db_vhost
 - rabbit_db_vhost_defaults
+- rabbit_db_vhost_m2k_converter
 - rabbit_dead_letter
 - rabbit_definitions
 - rabbit_definitions_hashing
@@ -602,6 +743,7 @@ rabbit:
 - rabbit_global_counters
 - rabbit_guid
 - rabbit_health_check
+- rabbit_khepri
 - rabbit_limiter
 - rabbit_log_channel
 - rabbit_log_connection
@@ -828,6 +970,7 @@ rabbitmq_aws:
 rabbitmq_consistent_hash_exchange:
 - Elixir.RabbitMQ.CLI.Diagnostics.Commands.ConsistentHashExchangeRingStateCommand
 - rabbit_db_ch_exchange
+- rabbit_db_ch_exchange_m2k_converter
 - rabbit_exchange_type_consistent_hash
 rabbitmq_ct_client_helpers:
 - rabbit_ct_client_helpers
@@ -869,6 +1012,7 @@ rabbitmq_federation_management:
 - rabbit_federation_mgmt
 rabbitmq_jms_topic_exchange:
 - rabbit_db_jms_exchange
+- rabbit_db_jms_exchange_m2k_converter
 - rabbit_jms_topic_exchange
 - sjx_evaluator
 rabbitmq_management:
@@ -1070,6 +1214,7 @@ rabbitmq_random_exchange:
 - rabbit_exchange_type_random
 rabbitmq_recent_history_exchange:
 - rabbit_db_rh_exchange
+- rabbit_db_rh_exchange_m2k_converter
 - rabbit_exchange_type_recent_history
 rabbitmq_sharding:
 - rabbit_sharding_exchange_decorator
@@ -1215,6 +1360,51 @@ ranch:
 - ranch_sup
 - ranch_tcp
 - ranch_transport
+rebar:
+- rebar
+- rebar_abnfc_compiler
+- rebar_app_utils
+- rebar_appups
+- rebar_asn1_compiler
+- rebar_base_compiler
+- rebar_cleaner
+- rebar_config
+- rebar_core
+- rebar_cover_utils
+- rebar_ct
+- rebar_deps
+- rebar_dia_compiler
+- rebar_dialyzer
+- rebar_edoc
+- rebar_erlc_compiler
+- rebar_erlydtl_compiler
+- rebar_escripter
+- rebar_eunit
+- rebar_file_utils
+- rebar_getopt
+- rebar_lfe_compiler
+- rebar_log
+- rebar_metacmds
+- rebar_mustache
+- rebar_neotoma_compiler
+- rebar_otp_app
+- rebar_otp_appup
+- rebar_port_compiler
+- rebar_proto_compiler
+- rebar_proto_gpb_compiler
+- rebar_protobuffs_compiler
+- rebar_qc
+- rebar_rand_compat
+- rebar_rel_utils
+- rebar_reltool
+- rebar_require_vsn
+- rebar_shell
+- rebar_subdirs
+- rebar_templater
+- rebar_upgrade
+- rebar_utils
+- rebar_xref
+- rmemo
 recon:
 - recon
 - recon_alloc
@@ -1234,6 +1424,14 @@ seshat:
 - seshat_app
 - seshat_counters_server
 - seshat_sup
+ssl_verify_fun:
+- ssl_verify_fingerprint
+- ssl_verify_fun_cert_helpers
+- ssl_verify_fun_encodings
+- ssl_verify_hostname
+- ssl_verify_pk
+- ssl_verify_string
+- ssl_verify_util
 stdout_formatter:
 - stdout_formatter
 - stdout_formatter_paragraph
@@ -1274,3 +1472,8 @@ trust_store_http:
 - trust_store_http_sup
 - trust_store_invalid_handler
 - trust_store_list_handler
+unicode_util_compat:
+- string_compat
+- unicode_util_compat
+unuseddep:
+- unuseddep
