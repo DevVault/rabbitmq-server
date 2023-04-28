@@ -81,7 +81,7 @@ delete_from_khepri(?HASH_RING_STATE_TABLE = Table, Key,
        "Mnesia->Khepri data delete: [~0p] key: ~0p",
        [Table, Key],
        #{domain => ?KMM_M2K_TABLE_COPY_LOG_DOMAIN}),
-    Path = rabbit_db_vhost:khepri_consistent_hash_path(Key),
+    Path = rabbit_db_ch_exchange:khepri_consistent_hash_path(Key),
     ?LOG_DEBUG(
        "Mnesia->Khepri data delete: [~0p] path: ~0p",
        [Table, Path],
