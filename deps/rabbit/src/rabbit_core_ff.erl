@@ -205,12 +205,8 @@ mds_phase1_migration_post_enable(#{feature_name := FeatureName}) ->
     mds_migration_post_enable(FeatureName, Tables).
 
 mds_migration_enable(FeatureName, TablesAndOwners) ->
-    case ensure_khepri_cluster_matches_mnesia(FeatureName) of
-        ok ->
-            mds_migrate_tables_to_khepri(FeatureName, TablesAndOwners);
-        Error ->
-            {error, {migration_failure, Error}}
-    end.
+    ok = ensure_khepri_cluster_matches_mnesia(FeatureName),
+    mds_migrate_tables_to_khepri(FeatureName, TablesAndOwners).
 
 mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     ?assert(rabbit_khepri:is_enabled(non_blocking)),
