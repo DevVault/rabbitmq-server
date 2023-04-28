@@ -250,7 +250,7 @@ erlang_package.git_package(
     name = "khepri_mnesia_migration",
     build_file = "@rabbitmq-server//bazel:BUILD.khepri_mnesia_migration",
     repository = "rabbitmq/khepri_mnesia_migration",
-    commit = "da48b45ed0843234919b6e47006d5907cfe876f6",
+    commit = "b7033dcaec07a203b3ff71283f687afe475aae06",
 )
 
 erlang_package.hex_package(
