@@ -154,6 +154,7 @@ dep_systemd = hex 0.6.1
 dep_seshat = hex 0.4.0
 dep_khepri = git https://github.com/rabbitmq/khepri.git main
 dep_khepri_mnesia_migration = git https://github.com/rabbitmq/khepri_mnesia_migration.git main
+dep_horus = git https://github.com/rabbitmq/horus.git main
 
 define usage_xml_to_erl
 $(subst __,_,$(patsubst $(DOCS_DIR)/rabbitmq%.1.xml, src/rabbit_%_usage.erl, $(subst -,_,$(1))))

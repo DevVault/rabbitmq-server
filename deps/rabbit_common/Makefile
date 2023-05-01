@@ -29,6 +29,7 @@ LOCAL_DEPS = compiler crypto public_key sasl ssl syntax_tools tools xmerl
 DEPS = thoas recon credentials_obfuscation khepri
 
 dep_khepri = git https://github.com/rabbitmq/khepri.git main
+dep_horus = git https://github.com/rabbitmq/horus.git main
 
 # Variables and recipes in development.*.mk are meant to be used from
 # any Git clone. They are excluded from the files published to Hex.pm.

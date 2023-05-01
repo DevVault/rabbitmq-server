@@ -226,6 +226,13 @@ erlang_package.hex_package(
 )
 
 erlang_package.git_package(
+    name = "horus",
+    build_file = "@rabbitmq-server//bazel:BUILD.horus",
+    commit = "d9061b945a3a3261f639fbd7e7fcd0624fa2e9ad",
+    repository = "rabbitmq/horus",
+)
+
+erlang_package.git_package(
     name = "jose",
     build_file = "@rabbitmq-server//bazel:BUILD.jose",
     commit = "d63c1c5c8f9c1a4f1438e234b886de8607a0034e",
@@ -242,7 +249,7 @@ erlang_package.hex_package(
 erlang_package.git_package(
     name = "khepri",
     build_file = "@rabbitmq-server//bazel:BUILD.khepri",
-    commit = "295bf1e91a20e5260ee3df9fdb8423b16c1d518a",
+    commit = "e5b8753ef14212baaa53af8171ad71b3848003d4",
     repository = "rabbitmq/khepri",
 )
 
@@ -362,6 +369,7 @@ use_repo(
     "gen_batch_server",
     "getopt",
     "gun",
+    "horus",
     "jose",
     "json",
     "khepri",
