@@ -134,8 +134,10 @@ change_node_type(NodeType) ->
 change_node_type_using_mnesia(NodeType) ->
     rabbit_mnesia:change_cluster_node_type(NodeType).
 
-change_node_type_using_khepri(_NodeType) ->
-    rabbit_log:warning("Change cluster node type is not supported by Khepri. Only disc nodes are allowed. Skipping..."),
+change_node_type_using_khepri(disc) ->
+    rabbit_mnesia:change_cluster_node_type(disc);
+change_node_type_using_khepri(ram) ->
+    rabbit_log:warning("Change cluster node type to ram is not supported by Khepri. Only disc nodes are allowed. Skipping..."),
     {error, not_supported}.
 
 %% -------------------------------------------------------------------

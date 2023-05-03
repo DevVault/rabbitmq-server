@@ -25,6 +25,11 @@ defmodule RabbitMQ.CLI.DefaultOutput do
       "Please stop RabbitMQ with 'rabbitmqctl stop_app' first."
   end
 
+  def khepri_timeout_error(node_name) do
+    "Khepri has timed out on node #{node_name}.\n" <>
+      "Khepri cluster could be in minority."
+  end
+
   defp normalize_output(:ok, %{node: node_name, formatter: "json"}) do
     {:ok, %{"result" => "ok", "node" => node_name}}
   end

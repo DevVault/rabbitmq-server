@@ -60,6 +60,8 @@
 %% Used internally in rpc calls
 -export([node_info/0, remove_node_if_mnesia_running/1]).
 
+-export([check_reset_gracefully/0]).
+
 -deprecated({on_running_node, 1,
              "Use rabbit_process:on_running_node/1 instead"}).
 -deprecated({is_process_alive, 1,
@@ -300,13 +302,16 @@ reset_gracefully() ->
     %% Force=true here so that reset still works when clustered with a
     %% node which is down.
     init_db_with_mnesia(AllNodes, node_type(), false, false, _Retry = false),
-    case is_only_clustered_disc_node() of
-        true  -> e(resetting_only_disc_node);
-        false -> ok
-    end,
+    check_reset_gracefully(),
     leave_cluster(),
     rabbit_misc:ensure_ok(mnesia:delete_schema([node()]), cannot_delete_schema),
     wipe().
+
+check_reset_gracefully() ->
+    case is_only_clustered_disc_node() of
+        true  -> e(resetting_only_disc_node);
+        false -> ok
+    end.
 
 wipe() ->
     %% We need to make sure that we don't end up in a distributed

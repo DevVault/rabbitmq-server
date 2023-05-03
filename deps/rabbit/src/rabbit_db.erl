@@ -89,8 +89,14 @@ reset() ->
     run(
       #{mnesia => fun() -> reset_using_mnesia() end,
         khepri => fun() ->
-                          reset_using_khepri(),
-                          reset_using_mnesia()
+                          rabbit_mnesia:check_reset_gracefully(),
+                          try
+                              reset_using_khepri(),
+                              reset_using_mnesia()
+                          catch
+                              throw:{timeout, _} = Reason ->
+                                  {error, Reason}
+                          end
                   end
        }).
 

@@ -48,12 +48,14 @@ groups() ->
                                                  forget_removes_things,
                                                  reset_removes_things,
                                                  forget_offline_removes_things,
+                                                 forget_unavailable_node_in_mnesia,
                                                  force_boot,
                                                  status_with_alarm,
                                                  pid_file_and_await_node_startup,
                                                  await_running_count,
                                                  start_with_invalid_schema_in_path,
-                                                 persistent_cluster_id
+                                                 persistent_cluster_id,
+                                                 reset_last_disc_node
                                                 ]}
                           ]},
                          {clustered_4_nodes, [],
@@ -70,8 +72,10 @@ groups() ->
                                                  change_cluster_node_type_in_khepri,
                                                  forget_node_in_khepri,
                                                  forget_removes_things_in_khepri,
+                                                 forget_unavailable_node_in_khepri,
                                                  reset_in_khepri,
                                                  reset_removes_things_in_khepri,
+                                                 reset_in_minority,
                                                  force_boot_in_khepri,
                                                  status_with_alarm,
                                                  pid_file_and_await_node_startup_in_khepri,
@@ -519,8 +523,6 @@ forget_node_in_khepri(Config) ->
     
     assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
                           [Rabbit, Hare]),
-    assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare]},
-                          [Rabbit, Hare]),
     
     ok = stop_app(Rabbit),
     ok = forget_cluster_node(Hare, Rabbit),
@@ -545,6 +547,22 @@ forget_removes_things_in_khepri(Config) ->
        declare_passive(HCh, ClassicQueue)),
 
     ok.
+
+forget_unavailable_node_in_khepri(Config) ->
+    [Rabbit, Hare] = cluster_members(Config),
+
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
+    Ret = forget_cluster_node(Hare, Rabbit),
+
+    ?assertMatch({error, 69, _}, Ret),
+    {error, _, Msg} = Ret,
+    ?assertMatch(match, re:run(Msg, ".*must be running.*", [{capture, none}])).
+
+forget_unavailable_node_in_mnesia(Config) ->
+    [Rabbit, Hare] = cluster_members(Config),
+
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
+    ?assertMatch(ok, forget_cluster_node(Hare, Rabbit)).
 
 reset_in_khepri(Config) ->
     ClassicQueue = <<"classic-queue">>,
@@ -591,6 +609,30 @@ reset_removes_things_in_khepri(Config) ->
     ?assertExit(
        {{shutdown, {server_initiated_close, 404, _}}, _},
        declare_passive(HCh, ClassicQueue)),
+
+    ok.
+
+reset_in_minority(Config) ->
+    [Rabbit, Hare | _] = cluster_members(Config),
+
+    rabbit_ct_broker_helpers:stop_node(Config, Hare),
+
+    stop_app(Rabbit),
+    ?assertMatch({error, 75, _}, reset(Rabbit)),
+
+    ok.
+
+reset_last_disc_node(Config) ->
+    Servers = [Rabbit, Hare | _] = cluster_members(Config),
+
+    stop_app(Hare),
+    ?assertEqual(ok, change_cluster_node_type(Hare, ram)),
+    start_app(Hare),
+
+    ok = rabbit_ct_broker_helpers:enable_feature_flag(Config, Servers, raft_based_metadata_store_phase1),
+
+    stop_app(Rabbit),
+    ?assertMatch({error, 69, _}, reset(Rabbit)),
 
     ok.
 
@@ -773,10 +815,13 @@ change_cluster_node_type_in_khepri(Config) ->
 
     assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
                           [Rabbit, Hare]),
-    change_cluster_node_type(Rabbit, ram),
-    assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
-                          [Rabbit, Hare]),
-    change_cluster_node_type(Rabbit, disc),
+
+    ok = stop_app(Rabbit),
+    Ret = change_cluster_node_type(Rabbit, ram),
+    is_not_supported(Ret),
+
+    ok = change_cluster_node_type(Rabbit, disc),
+    ok = start_app(Rabbit),
     assert_cluster_status({[Rabbit, Hare], [Rabbit, Hare], [Rabbit, Hare]},
                           [Rabbit, Hare]).
 

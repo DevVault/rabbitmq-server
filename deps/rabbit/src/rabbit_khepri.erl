@@ -280,34 +280,16 @@ remove_member(NodeToRemove) when NodeToRemove =/= node() ->
     case lists:member(NodeToRemove, CurrentNodes) of
         true ->
             %% Ensure the remote node is reachable before we remove it.
-            pong = net_adm:ping(NodeToRemove),
-
-            ?LOG_DEBUG(
-               "Removing remote node ~s from Khepri cluster \"~s\"",
-               [NodeToRemove, ?RA_CLUSTER_NAME],
-               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
-
-            %% We need the Khepri store to run on the node to remove, to be
-            %% able to reset it.
-            ok = rabbit_misc:rpc_call(
-                    NodeToRemove, ?MODULE, setup, []),
-
-            Ret = rabbit_misc:rpc_call(
-                    NodeToRemove, khepri_cluster, reset, [?RA_CLUSTER_NAME]),
-            case Ret of
-                ok ->
-                    ?LOG_DEBUG(
-                       "Node ~s removed from Khepri cluster \"~s\"",
-                       [NodeToRemove, ?RA_CLUSTER_NAME],
-                       #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
-                    ok;
-                Error ->
+            case net_adm:ping(NodeToRemove) of
+                pong ->
+                    remove_reachable_member(NodeToRemove);
+                pang ->
                     ?LOG_ERROR(
                        "Failed to remove remote node ~s from Khepri "
                        "cluster \"~s\": ~p",
-                       [NodeToRemove, ?RA_CLUSTER_NAME, Error],
+                       [NodeToRemove, ?RA_CLUSTER_NAME, remote_node_unavailable],
                        #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
-                    Error
+                    {error, {failed_to_remove_node, NodeToRemove, unavailable}}
             end;
         false ->
             ?LOG_INFO(
@@ -316,6 +298,35 @@ remove_member(NodeToRemove) when NodeToRemove =/= node() ->
                [NodeToRemove, ?RA_CLUSTER_NAME, lists:sort(CurrentNodes)],
                #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
             ok
+    end.
+
+remove_reachable_member(NodeToRemove) ->
+    ?LOG_DEBUG(
+       "Removing remote node ~s from Khepri cluster \"~s\"",
+       [NodeToRemove, ?RA_CLUSTER_NAME],
+       #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+
+    %% We need the Khepri store to run on the node to remove, to be
+    %% able to reset it.
+    ok = rabbit_misc:rpc_call(
+           NodeToRemove, ?MODULE, setup, []),
+
+    Ret = rabbit_misc:rpc_call(
+            NodeToRemove, khepri_cluster, reset, [?RA_CLUSTER_NAME]),
+    case Ret of
+        ok ->
+            ?LOG_DEBUG(
+               "Node ~s removed from Khepri cluster \"~s\"",
+               [NodeToRemove, ?RA_CLUSTER_NAME],
+               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+            ok;
+        Error ->
+            ?LOG_ERROR(
+               "Failed to remove remote node ~s from Khepri "
+               "cluster \"~s\": ~p",
+               [NodeToRemove, ?RA_CLUSTER_NAME, Error],
+               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+            Error
     end.
 
 reset() ->
