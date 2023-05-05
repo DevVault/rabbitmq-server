@@ -890,8 +890,7 @@ register_rabbit_user_permissions_projection() ->
 
 register_simple_projection(Name, PathPattern, KeyPos) ->
     Options = #{keypos => KeyPos},
-    Fun = fun(_Path, Resource) -> Resource end,
-    Projection = khepri_projection:new(Name, Fun, Options),
+    Projection = khepri_projection:new(Name, copy, Options),
     khepri:register_projection(?RA_CLUSTER_NAME, PathPattern, Projection).
 
 register_rabbit_bindings_projection() ->

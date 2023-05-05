@@ -249,7 +249,7 @@ erlang_package.hex_package(
 erlang_package.git_package(
     name = "khepri",
     build_file = "@rabbitmq-server//bazel:BUILD.khepri",
-    commit = "e5b8753ef14212baaa53af8171ad71b3848003d4",
+    commit = "9ed206abbc9100a498bd1ace27dc20c6bfd9034c",
     repository = "rabbitmq/khepri",
 )
 
