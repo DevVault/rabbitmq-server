@@ -617,8 +617,12 @@ reset_in_minority(Config) ->
 
     rabbit_ct_broker_helpers:stop_node(Config, Hare),
 
+    ok = rpc:call(Rabbit, application, set_env,
+                  [rabbit, khepri_leader_wait_retry_timeout, 1000]),
+    ok = rpc:call(Rabbit, application, set_env,
+                  [rabbit, khepri_leader_wait_retry_limit, 3]),
     stop_app(Rabbit),
-    ?assertMatch({error, 75, _}, reset(Rabbit)),
+    ?assertMatch({error, 69, _}, reset(Rabbit)),
 
     ok.
 
