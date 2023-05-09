@@ -56,8 +56,13 @@ create(TableName, TableDefinition) ->
 
 %% Sets up secondary indexes in a blank node database.
 ensure_secondary_indexes() ->
-  ensure_secondary_index(rabbit_queue, vhost),
-  ok.
+    case rabbit_khepri:is_enabled() of
+        true ->
+            ok;
+        false ->
+            ensure_secondary_index(rabbit_queue, vhost),
+            ok
+    end.
 
 ensure_secondary_index(Table, Field) ->
   case mnesia:add_table_index(Table, Field) of
@@ -320,10 +325,15 @@ definitions(ram) ->
         {Tab, TabDef} <- definitions()].
 
 definitions() ->
-      pre_khepri_definitions()
-        ++ gm:table_definitions()
-        ++ mirrored_supervisor:table_definitions()
-        ++ rabbit_maintenance:table_definitions().
+    case rabbit_khepri:is_enabled() of
+        true ->
+            [];
+        false ->
+            pre_khepri_definitions()
+                ++ gm:table_definitions()
+                ++ mirrored_supervisor:table_definitions()
+                ++ rabbit_maintenance:table_definitions()
+    end.
 
 pre_khepri_definitions() ->
     [{rabbit_user,

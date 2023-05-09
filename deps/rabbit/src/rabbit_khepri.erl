@@ -86,6 +86,8 @@
 -export([if_has_data/1,
          if_has_data_wildcard/0]).
 
+-export([force_shrink_member_to_current_member/0]).
+
 -ifdef(TEST).
 -export([force_metadata_store/1,
          clear_forced_metadata_store/0]).
@@ -317,12 +319,7 @@ remove_member(NodeToRemove) when NodeToRemove =/= node() ->
                 pong ->
                     remove_reachable_member(NodeToRemove);
                 pang ->
-                    ?LOG_ERROR(
-                       "Failed to remove remote node ~s from Khepri "
-                       "cluster \"~s\": ~p",
-                       [NodeToRemove, ?RA_CLUSTER_NAME, remote_node_unavailable],
-                       #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
-                    {error, {failed_to_remove_node, NodeToRemove, unavailable}}
+                    remove_down_member(NodeToRemove)
             end;
         false ->
             ?LOG_INFO(
@@ -362,6 +359,33 @@ remove_reachable_member(NodeToRemove) ->
             Error
     end.
 
+remove_down_member(NodeToRemove) ->
+    ServerRef = khepri_cluster:node_to_member(?STORE_ID, node()),
+    ServerId = khepri_cluster:node_to_member(?STORE_ID, NodeToRemove),
+    Ret = ra:remove_member(ServerRef, ServerId),
+    case Ret of
+        {ok, _, _} ->
+            ?LOG_DEBUG(
+               "Node ~s removed from Khepri cluster \"~s\"",
+               [NodeToRemove, ?RA_CLUSTER_NAME],
+               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+            ok;
+        {error, Reason} = Error ->
+            ?LOG_ERROR(
+               "Failed to remove remote down node ~s from Khepri "
+               "cluster \"~s\": ~p",
+               [NodeToRemove, ?RA_CLUSTER_NAME, Reason],
+               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+            Error;
+        {timeout, _} = Reason ->
+            ?LOG_ERROR(
+               "Failed to remove remote down node ~s from Khepri "
+               "cluster \"~s\": ~p",
+               [NodeToRemove, ?RA_CLUSTER_NAME, Reason],
+               #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
+            {error, Reason}
+    end.
+
 reset() ->
     %% Rabbit should be stopped, but Khepri needs to be running. Restart it.
     ok = setup(),
@@ -371,6 +395,10 @@ reset() ->
 force_reset() ->
     DataDir = maps:get(data_dir, ra_system:fetch(coordination)),
     ok = rabbit_file:recursive_delete(filelib:wildcard(DataDir ++ "/*")).
+
+force_shrink_member_to_current_member() ->
+    ok = ra_server_proc:force_shrink_members_to_current_member(
+           {?RA_CLUSTER_NAME, node()}).
 
 ensure_ra_system_started() ->
     {ok, _} = application:ensure_all_started(khepri),
@@ -466,9 +494,9 @@ get_sys_status(Proc) ->
 cli_cluster_status() ->
     case rabbit:is_running() of
         true ->
-            Nodes = nodes(),
-            [{nodes, [{disc, [N || N <- Nodes, rabbit_nodes:is_running(N)]}]},
-             {running_nodes, Nodes},
+            Nodes = locally_known_nodes(),
+            [{nodes, [{disc, Nodes}]},
+             {running_nodes, [N || N <- Nodes, rabbit_nodes:is_running(N)]},
              {cluster_name, rabbit_nodes:cluster_name()}];
         false ->
             []
@@ -492,6 +520,9 @@ init_cluster() ->
         _ = application:ensure_all_started(khepri_mnesia_migration),
         rabbit_log:debug("Khepri clustering: syncing cluster membership"),
         mnesia_to_khepri:sync_cluster_membership(?STORE_ID)
+    catch
+        error:{khepri_mnesia_migration_ex, _, _} = Reason ->
+            {error, Reason}
     after
         case IsRunning of
             true -> ok;
@@ -1118,6 +1149,9 @@ retry_khepri_op(Fun, N) ->
                 false ->
                     Err
             end;
+        {error, cluster_change_not_permitted} ->
+            timer:sleep(1000),
+            retry_khepri_op(Fun, N - 1);
         Any ->
             Any
     end.

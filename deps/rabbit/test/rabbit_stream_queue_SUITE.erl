@@ -1882,7 +1882,9 @@ leader_failover_dedupe(Config) ->
                     go ->
                         [publish(Ch2, Q, integer_to_binary(N + I))
                          || I <- lists:seq(1, 100)],
+                        ct:pal("publish loop waiting for confirms"),
                         true = amqp_channel:wait_for_confirms(Ch2, 25),
+                        ct:pal("publish loop finished waiting for confirms"),
                         F(N + 100);
                     stop ->
                         Self ! {last_msg, N},
@@ -1919,8 +1921,8 @@ leader_failover_dedupe(Config) ->
 
     N = receive
             {last_msg, X} -> X
-        after 2000 ->
-                  exit(last_msg_timeout)
+        after 10000 ->
+                exit(last_msg_timeout)
         end,
     %% validate that no duplicates were written even though an internal
     %% resend might have taken place

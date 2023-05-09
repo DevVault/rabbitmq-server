@@ -205,8 +205,12 @@ mds_phase1_migration_post_enable(#{feature_name := FeatureName}) ->
     mds_migration_post_enable(FeatureName, Tables).
 
 mds_migration_enable(FeatureName, TablesAndOwners) ->
-    ok = ensure_khepri_cluster_matches_mnesia(FeatureName),
-    mds_migrate_tables_to_khepri(FeatureName, TablesAndOwners).
+    case ensure_khepri_cluster_matches_mnesia(FeatureName) of
+        ok ->
+            mds_migrate_tables_to_khepri(FeatureName, TablesAndOwners);
+        Error ->
+            Error
+    end.
 
 mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     ?assert(rabbit_khepri:is_enabled(non_blocking)),
@@ -221,7 +225,12 @@ ensure_khepri_cluster_matches_mnesia(FeatureName) ->
        "Feature flag `~s`:   updating the Khepri cluster to match "
        "the Mnesia cluster",
        [FeatureName]),
-    rabbit_khepri:init_cluster().
+    try
+        rabbit_khepri:init_cluster()
+    catch
+        error:{khepri_mnesia_migration_ex, _, _} = Reason ->
+            {error, Reason}
+    end.
 
 mds_plugin_migration_enable(FeatureName, TablesAndOwners) ->
     global:set_lock({FeatureName, self()}),
@@ -307,6 +316,17 @@ clear_data_from_previous_attempt(_, []) ->
 %%
 %% But for now, let's just empty the tables, add a forged record to mark them
 %% as migrated and leave them around.
+
+%% Just emptying the tables can cause Mnesia synchronisation issues
+%% if the node is killed and restarted soon after. The change
+%% from `read_only` to `read_write` might have not be synced
+%% on all nodes, and the schema differ on the next boot.
+%% The likelyhood of this happening is probably very low,
+%% so we'll leave the tables as this. Deleting a local table
+%% copy has a lot of side effects when adding a node that
+%% has not yet enabled the feature flag to a Khepri cluster.
+%% Operations as wait for tables, checks for presence
+%% and so on will fail.
 
 empty_unused_mnesia_tables(FeatureName, [Table | Rest]) ->
     %% The feature flag is enabled at this point. It means there should be no

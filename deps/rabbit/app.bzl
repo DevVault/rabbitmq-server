@@ -863,6 +863,14 @@ def test_suite_beam_files(name = "test_suite_beam_files"):
         deps = ["//deps/amqp_client:erlang_app"],
     )
     erlang_bytecode(
+        name = "test_clustering_utils_beam",
+        testonly = True,
+        srcs = ["test/clustering_utils.erl"],
+        outs = ["test/clustering_utils.beam"],
+        app_name = "rabbit",
+        erlc_opts = "//:test_erlc_opts",
+    )
+    erlang_bytecode(
         name = "config_schema_SUITE_beam_files",
         testonly = True,
         srcs = ["test/config_schema_SUITE.erl"],

@@ -336,15 +336,21 @@ rabbitmq_integration_suite(
     name = "clustering_management_SUITE",
     size = "large",
     flaky = True,
-    shard_count = 46,
+    shard_count = 49,
     sharding_method = "case",
+    additional_beam = [
+        ":test_clustering_utils_beam",
+    ],
 )
 
 rabbitmq_integration_suite(
     name = "clustering_recovery_SUITE",
     size = "medium",
-    shard_count = 2,
+    shard_count = 8,
     sharding_method = "case",
+    additional_beam = [
+        ":test_clustering_utils_beam",
+    ],
 )
 
 rabbitmq_integration_suite(
@@ -1262,6 +1268,7 @@ eunit(
         ":test_rabbit_ha_test_producer_beam",
         ":test_test_util_beam",
         ":test_test_rabbit_event_handler_beam",
+        ":test_clustering_utils_beam",
     ],
     target = ":test_erlang_app",
 )

@@ -28,11 +28,6 @@ defmodule RabbitMQ.CLI.Ctl.Commands.ResetCommand do
      RabbitMQ.CLI.DefaultOutput.mnesia_running_error(node_name)}
   end
 
-  def output({:error, {:timeout, {:metadata_store, _}}}, %{node: node_name}) do
-    {:error, RabbitMQ.CLI.Core.ExitCodes.exit_tempfail(),
-     RabbitMQ.CLI.DefaultOutput.khepri_timeout_error(node_name)}
-  end
-
   use RabbitMQ.CLI.DefaultOutput
 
   def usage, do: "reset"

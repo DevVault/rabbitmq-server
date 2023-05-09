@@ -13,7 +13,12 @@
 
 -compile(export_all).
 
--define(LOOP_RECURSION_DELAY, 100).
+-import(clustering_utils, [
+                           assert_status/2,
+                           assert_cluster_status/2,
+                           assert_clustered/1,
+                           assert_not_clustered/1
+                          ]).
 
 all() ->
     [
@@ -48,7 +53,7 @@ groups() ->
                                                  forget_removes_things,
                                                  reset_removes_things,
                                                  forget_offline_removes_things,
-                                                 forget_unavailable_node_in_mnesia,
+                                                 forget_unavailable_node,
                                                  force_boot,
                                                  status_with_alarm,
                                                  pid_file_and_await_node_startup,
@@ -72,7 +77,6 @@ groups() ->
                                                  change_cluster_node_type_in_khepri,
                                                  forget_node_in_khepri,
                                                  forget_removes_things_in_khepri,
-                                                 forget_unavailable_node_in_khepri,
                                                  reset_in_khepri,
                                                  reset_removes_things_in_khepri,
                                                  reset_in_minority,
@@ -86,18 +90,26 @@ groups() ->
                                                  restart_cluster_node,
                                                  unsupported_forget_cluster_node_offline,
                                                  unsupported_update_cluster_nodes
+
                                                 ]}
                           ]},
+                         {clustered_3_nodes, [],
+                          [{cluster_size_3, [], [
+                                                 forget_unavailable_node,
+                                                 forget_unavailable_node_in_minority
+                                                ]}]},
                          {unclustered_3_nodes, [],
                           [
                            {cluster_size_3, [], [
                                                  join_and_part_cluster_in_khepri,
                                                  join_cluster_bad_operations_in_khepri,
+                                                 join_cluster_in_minority,
+                                                 join_cluster_with_rabbit_stopped,
                                                  force_reset_node_in_khepri,
                                                  join_to_start_interval,
                                                  forget_cluster_node_in_khepri,
                                                  start_nodes_in_reverse_order,
-                                                 start_nodes_in_stop_order,
+                                                 start_nodes_in_stop_order_in_khepri,
                                                  start_nodes_in_stop_order_with_force_boot
                                                 ]}
                           ]}
@@ -406,6 +418,49 @@ join_to_start_interval(Config) ->
     ok = start_app(Rabbit),
     assert_clustered([Rabbit, Hare]).
 
+join_cluster_in_minority(Config) ->
+    [Rabbit, Hare, Bunny] = cluster_members(Config),
+    assert_not_clustered(Rabbit),
+    assert_not_clustered(Hare),
+    assert_not_clustered(Bunny),
+
+    stop_join_start(Bunny, Rabbit),
+    assert_clustered([Rabbit, Bunny]),
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Bunny),
+
+    ok = stop_app(Hare),
+    all_mnesia_nodes_must_run(join_cluster(Hare, Rabbit, false)),
+
+    ok = rabbit_ct_broker_helpers:start_node(Config, Bunny),
+    ?assertEqual(ok, join_cluster(Hare, Rabbit, false)),
+    ?assertEqual(ok, start_app(Hare)),
+
+    assert_clustered([Rabbit, Bunny, Hare]).
+
+join_cluster_with_rabbit_stopped(Config) ->
+    [Rabbit, Hare, Bunny] = cluster_members(Config),
+    assert_not_clustered(Rabbit),
+    assert_not_clustered(Hare),
+    assert_not_clustered(Bunny),
+
+    stop_join_start(Bunny, Rabbit),
+    assert_clustered([Rabbit, Bunny]),
+    ok = stop_app(Bunny),
+
+    ok = stop_app(Hare),
+    all_mnesia_nodes_must_run(join_cluster(Hare, Rabbit, false)),
+
+    ok = start_app(Bunny),
+    ?assertEqual(ok, join_cluster(Hare, Rabbit, false)),
+    ?assertEqual(ok, start_app(Hare)),
+
+    assert_clustered([Rabbit, Bunny, Hare]).
+
+all_mnesia_nodes_must_run(Ret) ->
+    ?assertMatch({error, 70, _}, Ret),
+    {error, _, Msg} = Ret,
+    ?assertMatch(match, re:run(Msg, ".*all mnesia nodes must run.*", [{capture, none}])).
+
 forget_cluster_node(Config) ->
     [Rabbit, Hare, Bunny] = cluster_members(Config),
 
@@ -548,21 +603,23 @@ forget_removes_things_in_khepri(Config) ->
 
     ok.
 
-forget_unavailable_node_in_khepri(Config) ->
-    [Rabbit, Hare] = cluster_members(Config),
+forget_unavailable_node(Config) ->
+    [Rabbit, Hare | _] = Nodes = cluster_members(Config),
 
     ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
-    Ret = forget_cluster_node(Hare, Rabbit),
+    ?assertMatch(ok, forget_cluster_node(Hare, Rabbit)),
 
-    ?assertMatch({error, 69, _}, Ret),
-    {error, _, Msg} = Ret,
-    ?assertMatch(match, re:run(Msg, ".*must be running.*", [{capture, none}])).
+    NNodes = lists:nthtail(1, Nodes),
 
-forget_unavailable_node_in_mnesia(Config) ->
-    [Rabbit, Hare] = cluster_members(Config),
+    assert_cluster_status({NNodes, NNodes}, NNodes).
+
+forget_unavailable_node_in_minority(Config) ->
+    [Rabbit, Hare, Bunny] = cluster_members(Config),
 
     ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
-    ?assertMatch(ok, forget_cluster_node(Hare, Rabbit)).
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Bunny),
+    timer:sleep(5000),
+    is_in_minority(forget_cluster_node(Hare, Rabbit)).
 
 reset_in_khepri(Config) ->
     ClassicQueue = <<"classic-queue">>,
@@ -622,9 +679,15 @@ reset_in_minority(Config) ->
     ok = rpc:call(Rabbit, application, set_env,
                   [rabbit, khepri_leader_wait_retry_limit, 3]),
     stop_app(Rabbit),
-    ?assertMatch({error, 69, _}, reset(Rabbit)),
+
+    is_in_minority(reset(Rabbit)),
 
     ok.
+
+is_in_minority(Ret) ->
+    ?assertMatch({error, 75, _}, Ret),
+    {error, _, Msg} = Ret,
+    ?assertMatch(match, re:run(Msg, ".*timed out.*minority.*", [{capture, none}])).
 
 reset_last_disc_node(Config) ->
     Servers = [Rabbit, Hare | _] = cluster_members(Config),
@@ -1190,6 +1253,28 @@ start_nodes_in_stop_order(Config) ->
             ?assertMatch({error, {skip, _}}, Reply)
     end.
 
+start_nodes_in_stop_order_in_khepri(Config) ->
+    [Rabbit, Hare, Bunny] = cluster_members(Config),
+    assert_not_clustered(Rabbit),
+    assert_not_clustered(Hare),
+    assert_not_clustered(Bunny),
+
+    stop_join_start(Rabbit, Bunny),
+    stop_join_start(Hare, Bunny),
+    assert_clustered([Rabbit, Hare, Bunny]),
+
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Hare),
+    ok = rabbit_ct_broker_helpers:stop_node(Config, Bunny),
+
+    ok = rabbit_ct_broker_helpers:async_start_node(Config, Rabbit),
+    ok = rabbit_ct_broker_helpers:async_start_node(Config, Hare),
+    ok = rabbit_ct_broker_helpers:async_start_node(Config, Bunny),
+
+    ?assertMatch(ok, rabbit_ct_broker_helpers:wait_for_async_start_node(Rabbit)),
+    ?assertMatch(ok, rabbit_ct_broker_helpers:wait_for_async_start_node(Hare)),
+    ?assertMatch(ok, rabbit_ct_broker_helpers:wait_for_async_start_node(Bunny)).    
+
 %% TODO test force_boot with Khepri involved
 start_nodes_in_stop_order_with_force_boot(Config) ->
     [Rabbit, Hare, Bunny] = cluster_members(Config),
@@ -1245,79 +1330,6 @@ pid_from_file(PidFile) ->
 cluster_members(Config) ->
     rabbit_ct_broker_helpers:get_node_configs(Config, nodename).
 
-assert_status(Tuple, Nodes) ->
-    assert_cluster_status(Tuple, Nodes, fun verify_status_equal/3).
-
-assert_cluster_status(Tuple, Nodes) ->
-    assert_cluster_status(Tuple, Nodes, fun verify_cluster_status_equal/3).
-
-assert_cluster_status({All, Running}, Nodes, VerifyFun) ->
-    assert_cluster_status({All, Running, All, All, Running}, Nodes, VerifyFun);
-assert_cluster_status({All, Disc, Running}, Nodes, VerifyFun) ->
-    assert_cluster_status({All, Running, All, Disc, Running}, Nodes, VerifyFun);
-assert_cluster_status(Status0, Nodes, VerifyFun) ->
-    Status = sort_cluster_status(Status0),
-    AllNodes = case Status of
-                   {undef, undef, All, _, _} ->
-                       %% Support mixed-version clusters
-                       All;
-                   {All, _, _, _, _} ->
-                       All
-               end,
-    wait_for_cluster_status(Status, AllNodes, Nodes, VerifyFun).
-
-wait_for_cluster_status(Status, AllNodes, Nodes, VerifyFun) ->
-    Max = 10000 / ?LOOP_RECURSION_DELAY,
-    wait_for_cluster_status(0, Max, Status, AllNodes, Nodes, VerifyFun).
-
-wait_for_cluster_status(N, Max, Status, _AllNodes, Nodes, _VerifyFun) when N >= Max ->
-    erlang:error({cluster_status_max_tries_failed,
-                  [{nodes, Nodes},
-                   {expected_status, Status},
-                   {max_tried, Max},
-                   {status, sort_cluster_status(cluster_status(hd(Nodes)))}]});
-wait_for_cluster_status(N, Max, Status, AllNodes, Nodes, VerifyFun) ->
-    case lists:all(fun (Node) ->
-                           VerifyFun(Node, Status, AllNodes)
-                   end, Nodes) of
-        true  -> ok;
-        false -> timer:sleep(?LOOP_RECURSION_DELAY),
-                 wait_for_cluster_status(N + 1, Max, Status, AllNodes, Nodes, VerifyFun)
-    end.
-
-verify_status_equal(Node, Status, _AllNodes) ->
-    NodeStatus = sort_cluster_status(cluster_status(Node)),
-    equal(Status, NodeStatus).
-
-verify_cluster_status_equal(Node, Status, AllNodes) ->
-    NodeStatus = sort_cluster_status(cluster_status(Node)),
-    IsClustered = rpc:call(Node, rabbit_db_cluster, is_clustered, []),
-    ((AllNodes =/= [Node]) =:= IsClustered andalso equal(Status, NodeStatus)).
-
-equal({_, _, A, B, C}, {undef, undef, A, B, C}) ->
-    true;
-equal({_, _, _, _, _}, {undef, undef, _, _, _}) ->
-    false;
-equal(Status0, Status1) ->
-    Status0 == Status1.
-
-cluster_status(Node) ->
-    {rpc:call(Node, rabbit_nodes, list_members, []),
-     rpc:call(Node, rabbit_nodes, list_running, []),
-     rpc:call(Node, rabbit_mnesia, cluster_nodes, [all]),
-     rpc:call(Node, rabbit_mnesia, cluster_nodes, [disc]),
-     rpc:call(Node, rabbit_mnesia, cluster_nodes, [running])}.
-
-sort_cluster_status({{badrpc, {'EXIT', {undef, _}}}, {badrpc, {'EXIT', {undef, _}}}, AllM, DiscM, RunningM}) ->
-    {undef, undef, lists:sort(AllM), lists:sort(DiscM), lists:sort(RunningM)};
-sort_cluster_status({All, Running, AllM, DiscM, RunningM}) ->
-    {lists:sort(All), lists:sort(Running), lists:sort(AllM), lists:sort(DiscM), lists:sort(RunningM)}.
-
-assert_clustered(Nodes) ->
-    assert_cluster_status({Nodes, Nodes, Nodes, Nodes, Nodes}, Nodes).
-
-assert_not_clustered(Node) ->
-    assert_cluster_status({[Node], [Node], [Node], [Node], [Node]}, [Node]).
 
 assert_failure(Fun) ->
     case catch Fun() of
