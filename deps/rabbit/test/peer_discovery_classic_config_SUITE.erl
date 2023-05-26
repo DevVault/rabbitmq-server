@@ -20,16 +20,29 @@
 
 all() ->
     [
-     {group, non_parallel}
+     {group, non_parallel},
+     {group, cluster_size_3},
+     {group, cluster_size_5},
+     {group, cluster_size_7}
     ].
 
 groups() ->
     [
      {non_parallel, [], [
-                         successful_discovery,
-                         successful_discovery_with_a_subset_of_nodes_coming_online,
                          no_nodes_configured
-                        ]}
+                        ]},
+     {cluster_size_3, [], [
+                           successful_discovery,
+                           successful_discovery_with_a_subset_of_nodes_coming_online
+                          ]},
+     {cluster_size_5, [], [
+                           successful_discovery,
+                           successful_discovery_with_a_subset_of_nodes_coming_online
+                          ]},
+     {cluster_size_7, [], [
+                           successful_discovery,
+                           successful_discovery_with_a_subset_of_nodes_coming_online
+                          ]}
     ].
 
 suite() ->
@@ -50,10 +63,22 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     rabbit_ct_helpers:run_teardown_steps(Config).
 
+init_per_group(cluster_size_3, Config) ->
+    rabbit_ct_helpers:set_config(Config, [{rmq_nodes_count, 3}]);
+init_per_group(cluster_size_5, Config) ->
+    rabbit_ct_helpers:set_config(Config, [{rmq_nodes_count, 5}]);
+init_per_group(cluster_size_7, Config) ->
+    rabbit_ct_helpers:set_config(Config, [{rmq_nodes_count, 7}]);
+init_per_group(_, Config) ->
+    Config.
+
+end_per_group(_, Config) ->
+    Config.
+
 init_per_testcase(successful_discovery = Testcase, Config) ->
     Config1 = rabbit_ct_helpers:testcase_started(Config, Testcase),
 
-    N = 3,
+    N = ?config(rmq_nodes_count, Config),
     NodeNames = [
       list_to_atom(rabbit_misc:format("~ts-~b", [Testcase, I]))
       || I <- lists:seq(1, N)
@@ -78,7 +103,7 @@ init_per_testcase(successful_discovery = Testcase, Config) ->
 init_per_testcase(successful_discovery_with_a_subset_of_nodes_coming_online = Testcase, Config) ->
     Config1 = rabbit_ct_helpers:testcase_started(Config, Testcase),
 
-    N = 2,
+    N = ?config(rmq_nodes_count, Config),
     NodeNames = [
       list_to_atom(rabbit_misc:format("~ts-~b", [Testcase, I]))
       || I <- lists:seq(1, N)
@@ -141,15 +166,17 @@ end_per_testcase(Testcase, Config) ->
 %% Test cases
 %%
 successful_discovery(Config) ->
+  N = length(?config(rmq_nodes_count, Config)),
   ?awaitMatch(
-     {M1, M2} when length(M1) =:= 3; length(M2) =:= 3,
+     {M1, M2} when length(M1) =:= N; length(M2) =:= N,
                    {cluster_members_online(Config, 0),
                     cluster_members_online(Config, 1)},
                    ?TIMEOUT).
 
 successful_discovery_with_a_subset_of_nodes_coming_online(Config) ->
+  N = length(?config(rmq_nodes_count, Config)),
   ?awaitMatch(
-     {M1, M2} when length(M1) =:= 2; length(M2) =:= 2,
+     {M1, M2} when length(M1) =:= N; length(M2) =:= N,
                    {cluster_members_online(Config, 0),
                     cluster_members_online(Config, 1)},
                    ?TIMEOUT).
