@@ -109,6 +109,14 @@ wait(TableNames, Retry) ->
     wait(TableNames, Timeout, Retries).
 
 wait(TableNames, Timeout, Retries) ->
+    %% Wait for tables must only wait for tables that have already been declared.
+    %% Otherwise, node boot returns a timeout when the Khepri ff is enabled from the start
+    ExistingTables = mnesia:system_info(tables),
+    MissingTables = TableNames -- ExistingTables,
+    TablesToMigrate = TableNames -- MissingTables,
+    wait1(TablesToMigrate, Timeout, Retries).
+
+wait1(TableNames, Timeout, Retries) ->
     %% We might be in ctl here for offline ops, in which case we can't
     %% get_env() for the rabbit app.
     rabbit_log:info("Waiting for Mnesia tables for ~tp ms, ~tp retries left",
@@ -131,7 +139,7 @@ wait(TableNames, Timeout, Retries) ->
             throw(Error);
         {_, {error, Error}} ->
             rabbit_log:warning("Error while waiting for Mnesia tables: ~tp", [Error]),
-            wait(TableNames, Timeout, Retries - 1)
+            wait1(TableNames, Timeout, Retries - 1)
     end.
 
 retry_timeout(_Retry = false) ->
@@ -325,7 +333,8 @@ definitions(ram) ->
         {Tab, TabDef} <- definitions()].
 
 definitions() ->
-    case rabbit_khepri:is_enabled() of
+    %% Checks for feature flags enabled during node boot must be non_blocking
+    case rabbit_khepri:is_enabled(non_blocking) of
         true ->
             [];
         false ->
