@@ -215,7 +215,12 @@ mds_migration_enable(FeatureName, TablesAndOwners) ->
 mds_migration_post_enable(FeatureName, TablesAndOwners) ->
     ?assert(rabbit_khepri:is_enabled(non_blocking)),
     {Tables, _} = lists:unzip(TablesAndOwners),
-    empty_unused_mnesia_tables(FeatureName, lists:flatten(Tables)).
+    case rabbit_table:is_present() of
+        true ->
+            empty_unused_mnesia_tables(FeatureName, lists:flatten(Tables));
+        false ->
+            ok
+    end.
 
 ensure_khepri_cluster_matches_mnesia(FeatureName) ->
     %% This is the first time Khepri will be used for real. Therefore
@@ -239,6 +244,20 @@ mds_plugin_migration_enable(FeatureName, TablesAndOwners) ->
     Ret.
 
 mds_migrate_tables_to_khepri(FeatureName, TablesAndOwners) ->
+    case rabbit_table:is_present() of
+        true ->
+            mds_migrate_tables_to_khepri0(FeatureName, TablesAndOwners);
+        false ->
+            ?LOG_NOTICE(
+               "Feature flag `~s`:   migration from Mnesia to Khepri "
+               "finished, no Mnesia tables are present",
+               [FeatureName]),
+            rabbit_db:set_migration_flag(FeatureName),
+            _ = rabbit_khepri:set_ready(),
+            ok
+    end.
+
+mds_migrate_tables_to_khepri0(FeatureName, TablesAndOwners) ->
     {Tables0, _} = lists:unzip(TablesAndOwners),
     Tables = lists:flatten(Tables0),
     rabbit_table:wait(Tables, _Retry = true),

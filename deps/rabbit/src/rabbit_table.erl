@@ -37,7 +37,7 @@
 create() ->
     lists:foreach(
         fun ({Table, Def}) -> create(Table, Def) end,
-        definitions()),
+        mandatory_definitions()),
     ensure_secondary_indexes(),
     ok.
 
@@ -338,11 +338,14 @@ definitions() ->
         true ->
             [];
         false ->
-            pre_khepri_definitions()
-                ++ gm:table_definitions()
-                ++ mirrored_supervisor:table_definitions()
-                ++ rabbit_maintenance:table_definitions()
+            mandatory_definitions()
     end.
+
+mandatory_definitions() ->
+    pre_khepri_definitions()
+        ++ gm:table_definitions()
+        ++ mirrored_supervisor:table_definitions()
+        ++ rabbit_maintenance:table_definitions().
 
 pre_khepri_definitions() ->
     [{rabbit_user,
