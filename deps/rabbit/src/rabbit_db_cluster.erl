@@ -27,6 +27,10 @@
 -export([rename/2,
          update_cluster_nodes/1]).
 
+%% Just for inspection while Mnesia and Khepri are both enabled
+%% rabbitmqctl eval 'rabbit_db_cluster:global_cluster_status().' --formatter=pretty_table
+-export([global_cluster_status/0]).
+
 -type node_type() :: disc_node_type() | ram_node_type().
 -type disc_node_type() :: disc.
 -type ram_node_type() :: ram.
@@ -262,6 +266,35 @@ cli_cluster_status_using_mnesia() ->
 
 cli_cluster_status_using_khepri() ->
     rabbit_khepri:cli_cluster_status().
+
+global_cluster_status() ->
+    {Status, All, Running} =
+        case rabbit_mnesia:cluster_status_from_mnesia() of
+            {ok, {A, _D, R}} ->
+                {to_string(running), A, R};
+            {error, Reason} ->
+                {to_string(Reason), [], []}
+        end,
+    {StatusK, AllK, RunningK} =
+        case rabbit_khepri:cluster_status_from_khepri() of
+            {ok, {AK, RK}} ->
+                {to_string(running), AK, RK};
+            {error, ReasonK} ->
+                {to_string(ReasonK), [], []}
+        end,
+    [[{<<"Metadata store">>, <<"mnesia">>},
+      {<<"Status">>, Status},
+      {<<"Nodes">>, to_string(All)},
+      {<<"Running nodes">>, to_string(Running)}],
+     [{<<"Metadata store">>, <<"khepri">>},
+      {<<"Status">>, StatusK},
+      {<<"Nodes">>, to_string(AllK)},
+      {<<"Running nodes">>, to_string(RunningK)}]].
+
+to_string(Atom) when is_atom(Atom) ->
+    atom_to_list(Atom);
+to_string(AtomList) ->
+    string:join([atom_to_list(A) || A <- lists:sort(AtomList)], ", ").
 
 rename(Node, NodeMapList) ->
     rabbit_db:run(
