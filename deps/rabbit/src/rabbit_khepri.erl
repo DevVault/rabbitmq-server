@@ -509,10 +509,7 @@ init_cluster() ->
     rabbit_log:debug("Khepri clustering: starting Mnesia..."),
     IsRunning = rabbit_mnesia:is_running(),
     try
-        case IsRunning of
-            true -> ok;
-            false -> rabbit_mnesia:start_mnesia(false)
-        end,
+        rabbit_mnesia:start_mnesia(false),
         rabbit_log:debug("Khepri clustering: starting Khepri..."),
         ok = setup(),
         khepri:info(?RA_CLUSTER_NAME),
