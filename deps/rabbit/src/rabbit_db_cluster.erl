@@ -37,6 +37,10 @@
 
 -export_type([node_type/0, disc_node_type/0, ram_node_type/0]).
 
+%% Because it uses rabbit_khepri:cluster_status_from_khepri/0,
+%% that works on a too restrictive `sys:get_statys/1` spec
+-dialyzer({no_match, global_cluster_status/0}).
+
 -define(
    IS_NODE_TYPE(NodeType),
    ((NodeType) =:= disc orelse (NodeType) =:= ram)).
