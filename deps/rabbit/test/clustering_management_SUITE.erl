@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("rabbitmq_ct_helpers/include/rabbit_assert.hrl").
 
 -compile(export_all).
 
@@ -614,12 +615,53 @@ forget_unavailable_node(Config) ->
     assert_cluster_status({NNodes, NNodes}, NNodes).
 
 forget_unavailable_node_in_minority(Config) ->
-    [Rabbit, Hare, Bunny] = cluster_members(Config),
+    All = [Rabbit, Hare, Bunny] = cluster_members(Config),
 
+    assert_cluster_status({All, All}, All),
+
+    %% Find out the raft status of the soon to be only
+    %% running node
+    RaftStatus = get_raft_status(Config, Hare),
+
+    %% Stop other two nodes
     ok = rabbit_ct_broker_helpers:stop_node(Config, Rabbit),
     ok = rabbit_ct_broker_helpers:stop_node(Config, Bunny),
-    timer:sleep(5000),
-    is_in_minority(forget_cluster_node(Hare, Rabbit)).
+    %% Wait until Mnesia has detected both nodes down
+    ?awaitMatch(
+       [Hare],
+       rabbit_ct_broker_helpers:rpc(Config, Hare,
+                                    rabbit_mnesia, cluster_nodes, [running]),
+       30000),
+
+    %% If Hare was the leader, it is able to forget one of the nodes. Change takes place as soon as it is written on the log. The other membership change will be rejected until the last change has consensus.
+    case RaftStatus of
+        leader ->
+            ?assertMatch(ok, forget_cluster_node(Hare, Rabbit)),
+            not_permitted(forget_cluster_node(Hare, Bunny));
+        follower ->
+            %% Follower might have been promoted before the second node goes down, check the status again
+            case rabbit_ct_broker_helpers:rpc(Config, Hare, rabbit_khepri, status, []) of
+                [] ->
+                    %% No info, it is on minority
+                    is_in_minority(forget_cluster_node(Hare, Rabbit));
+                _ ->
+                    %% Leader
+                    ?assertMatch(ok, forget_cluster_node(Hare, Rabbit)),
+                    not_permitted(forget_cluster_node(Hare, Bunny))
+            end
+    end.
+
+not_permitted(Ret) ->
+    ?assertMatch({error, 69, _}, Ret),
+    {error, _, Msg} = Ret,
+    ?assertMatch(match, re:run(Msg, ".*not_permitted.*", [{capture, none}])).
+
+get_raft_status(Config, Node) ->
+    AllStatus = rabbit_ct_broker_helpers:rpc(Config, Node, rabbit_khepri, status, []),
+    [NodeStatus] = lists:filter(fun(S) ->
+                                        proplists:get_value(<<"Node Name">>, S) == Node
+                                end, AllStatus),
+    proplists:get_value(<<"Raft State">>, NodeStatus).
 
 reset_in_khepri(Config) ->
     ClassicQueue = <<"classic-queue">>,

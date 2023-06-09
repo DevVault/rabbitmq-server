@@ -992,11 +992,15 @@ foreach_durable_in_mnesia(UpdateFun, FilterFun) ->
 
 foreach_durable_in_khepri(UpdateFun, FilterFun) ->
     Path = khepri_queues_path() ++ [rabbit_khepri:if_has_data_wildcard()],
-    {ok, Qs} = rabbit_khepri:filter(Path, fun(_, #{data := Q}) ->
-                                                  FilterFun(Q)
-                                          end),
-    _ = [UpdateFun(Q) || Q <- maps:values(Qs)],
-    ok.
+    case rabbit_khepri:filter(Path, fun(_, #{data := Q}) ->
+                                            FilterFun(Q)
+                                    end) of
+        {ok, Qs} ->
+            _ = [UpdateFun(Q) || Q <- maps:values(Qs)],
+            ok;
+        Error ->
+            Error
+    end.
 
 %% -------------------------------------------------------------------
 %% set_dirty().

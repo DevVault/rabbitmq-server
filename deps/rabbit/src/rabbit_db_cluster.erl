@@ -102,13 +102,22 @@ join_using_khepri(RemoteNode, NodeType) ->
 %% @doc Removes `Node' from the cluster.
 
 forget_member(Node, RemoveWhenOffline) ->
+    ?LOG_DEBUG(
+      "DB: removing cluster member `~ts`", [Node],
+       #{domain => ?RMQLOG_DOMAIN_DB}),
     rabbit_db:run(
       #{mnesia => fun() -> forget_member_using_mnesia(Node, RemoveWhenOffline) end,
         khepri => fun() ->
                           case forget_member_using_khepri(Node, RemoveWhenOffline) of
                               ok ->
+                                  ?LOG_DEBUG(
+                                     "DB: cluster member `~ts` removed in Khepri", [Node],
+                                     #{domain => ?RMQLOG_DOMAIN_DB}),
                                   forget_member_using_mnesia(Node, RemoveWhenOffline);
                               Error ->
+                                  ?LOG_WARNING(
+                                     "DB: removing cluster member `~ts` failed: ~p", [Node, Error],
+                                     #{domain => ?RMQLOG_DOMAIN_DB}),
                                   Error
                           end
                   end
