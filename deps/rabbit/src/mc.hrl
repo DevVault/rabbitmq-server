@@ -17,6 +17,3 @@
 
 %% good enough for most use cases
 -define(IS_MC(Msg), element(1, Msg) == mc andalso tuple_size(Msg) == 5).
-
-%%% TODO: work out dead letter logic incl cycle detection
-%%% and re-implement for mc

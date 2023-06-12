@@ -270,20 +270,18 @@ value_to_hash({header, Header}, Msg0) ->
         undefined -> undefined;
         _         -> rabbit_misc:table_lookup(Headers, Header)
     end;
-value_to_hash({property, Property}, Msg0) ->
-    Msg = mc:convert(rabbit_mc_amqp_legacy, Msg0),
-    #content{} = Content = mc:protocol_state(Msg),
-    #content{properties = #'P_basic'{ correlation_id = CorrId,
-                                      message_id     = MsgId,
-                                      timestamp      = Timestamp }} =
-        rabbit_binary_parser:ensure_content_decoded(Content),
+value_to_hash({property, Property}, Msg) ->
     case Property of
-        <<"correlation_id">> -> CorrId;
-        <<"message_id">>     -> MsgId;
-        <<"timestamp">>      ->
-            case Timestamp of
-                undefined -> undefined;
-                _         -> integer_to_binary(Timestamp)
+        <<"correlation_id">> ->
+            mc:correlation_id(Msg);
+        <<"message_id">> ->
+            mc:message_id(Msg);
+        <<"timestamp">> ->
+            case mc:timestamp(Msg) of
+                undefined ->
+                    undefined;
+                Timestamp ->
+                    integer_to_binary(Timestamp div 1000)
             end
     end.
 

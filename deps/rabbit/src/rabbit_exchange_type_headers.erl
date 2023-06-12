@@ -32,8 +32,7 @@ description() ->
 
 serialise_events() -> false.
 
-route(#exchange{name = Name},
-      Msg0) ->
+route(#exchange{name = Name}, Msg0) ->
     %% TODO converting to amqp legacy means this will be slow for all protocols
     %% except amqp legacy, ok for now to get it working but will need addressing
     Msg = mc:convert(rabbit_mc_amqp_legacy, Msg0),

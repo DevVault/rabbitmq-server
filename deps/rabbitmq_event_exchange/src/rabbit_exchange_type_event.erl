@@ -51,7 +51,7 @@ exchange() ->
 
 exchange(VHost) ->
     _ = ensure_vhost_exists(VHost),
-    rabbit_misc:r(VHost, exchange, ?EXCH_NAME).
+   rabbit_misc:r(VHost, exchange, ?EXCH_NAME).
 
 %%----------------------------------------------------------------------------
 

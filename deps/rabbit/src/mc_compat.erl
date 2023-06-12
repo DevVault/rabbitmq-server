@@ -13,6 +13,8 @@
          %%% properties
          is_persistent/1,
          ttl/1,
+         correlation_id/1,
+         message_id/1,
          timestamp/1,
          priority/1,
          set_ttl/2,
@@ -82,16 +84,22 @@ set_annotation(<<"x-", _/binary>> = Key, Value,
 
 
 is_persistent(#basic_message{content = Content}) ->
-    element(1, rabbit_mc_amqp_legacy:get_property(durable, Content)).
+    element(1, get_property(durable, Content)).
 
 ttl(#basic_message{content = Content}) ->
-    element(1, rabbit_mc_amqp_legacy:get_property(ttl, Content)).
+    element(1, get_property(ttl, Content)).
 
 timestamp(#basic_message{content = Content}) ->
-    element(1, rabbit_mc_amqp_legacy:get_property(timestamp, Content)).
+    element(1, get_property(timestamp, Content)).
 
 priority(#basic_message{content = Content}) ->
-    element(1, rabbit_mc_amqp_legacy:get_property(priority, Content)).
+    element(1, get_property(priority, Content)).
+
+correlation_id(#basic_message{content = Content}) ->
+    element(1, get_property(correlation_id, Content)).
+
+message_id(#basic_message{content = Content}) ->
+    element(1, get_property(message_id, Content)).
 
 set_ttl(Value, #basic_message{content = Content0} = Msg) ->
     Content = rabbit_mc_amqp_legacy:set_property(ttl, Value, Content0),
@@ -335,6 +343,26 @@ last_death(#basic_message{content = Content}) ->
         _ ->
             undefined
     end.
+
+get_property(durable,
+             #content{properties = #'P_basic'{delivery_mode = Mode}}) ->
+    Mode == 2;
+get_property(ttl, #content{properties = Props}) ->
+    {ok, MsgTTL} = rabbit_basic:parse_expiration(Props),
+    MsgTTL;
+get_property(priority, #content{properties = #'P_basic'{priority = P}}) ->
+    P;
+get_property(timestamp, #content{properties = Props}) ->
+    #'P_basic'{timestamp = Timestamp} = Props,
+    case Timestamp of
+        undefined ->
+            undefined;
+        _ ->
+            %% timestamp should be in ms
+            Timestamp * 1000
+    end;
+get_property(_P, _C) ->
+    undefined.
 
 
 % detect_cycles(rejected, _Msg, Queues) ->

@@ -11,15 +11,15 @@
          init_amqp/1,
          size/1,
          header/2,
-         get_property/2,
-         set_property/3,
+         % get_property/2,
+         % set_property/3,
          convert/2,
          protocol_state/3,
-         serialize/2,
          message/3,
          message/4,
          message/5,
-         from_basic_message/1
+         from_basic_message/1,
+         set_property/3
         ]).
 
 -define(HEADER_GUESS_SIZE, 100). %% see determine_persist_to/2
@@ -32,8 +32,10 @@
 
 %% mc implementation
 init(#content{} = Content) ->
-    %% TODO header routes
-    {strip_header(Content, ?DELETED_HEADER), #{}}.
+    %% TODO: header routes
+    %% project essential properties into annotations
+    Anns = essential_properties(Content),
+    {strip_header(Content, ?DELETED_HEADER), Anns}.
 
 init_amqp(Sections) when is_list(Sections) ->
     {_H, MAnn, P, AProp, #'v1_0.data'{content = Payload}} =
@@ -143,25 +145,25 @@ header(Key, #content{properties = #'P_basic'{headers = Headers}} = C) ->
             {Value, C}
     end.
 
-get_property(durable,
-             #content{properties = #'P_basic'{delivery_mode = Mode}} = C) ->
-    {Mode == 2, C};
-get_property(ttl, #content{properties = Props} = C) ->
-    {ok, MsgTTL} = rabbit_basic:parse_expiration(Props),
-    {MsgTTL, C};
-get_property(priority, #content{properties = #'P_basic'{priority = P}} = C) ->
-    {P, C};
-get_property(timestamp, #content{properties = Props} = C) ->
-    #'P_basic'{timestamp = Timestamp} = Props,
-    case Timestamp of
-        undefined ->
-            {undefined, C};
-        _ ->
-            %% timestamp should be in ms
-            {Timestamp * 1000, C}
-    end;
-get_property(_P, C) ->
-    {undefined, C}.
+% get_property(durable,
+%              #content{properties = #'P_basic'{delivery_mode = Mode}} = C) ->
+%     {Mode == 2, C};
+% get_property(ttl, #content{properties = Props} = C) ->
+%     {ok, MsgTTL} = rabbit_basic:parse_expiration(Props),
+%     {MsgTTL, C};
+% get_property(priority, #content{properties = #'P_basic'{priority = P}} = C) ->
+%     {P, C};
+% get_property(timestamp, #content{properties = Props} = C) ->
+%     #'P_basic'{timestamp = Timestamp} = Props,
+%     case Timestamp of
+%         undefined ->
+%             {undefined, C};
+%         _ ->
+%             %% timestamp should be in ms
+%             {Timestamp * 1000, C}
+%     end;
+% get_property(_P, C) ->
+%     {undefined, C}.
 
 set_property(ttl, undefined, #content{properties = Props} = C) ->
     %% TODO: impl rest, just what is needed for dead lettering for now
@@ -259,9 +261,6 @@ protocol_state(#content{properties = #'P_basic'{headers = H00} = B} = C,
     C#content{properties = B#'P_basic'{headers = Headers},
               properties_bin = none}.
 
-serialize(_C, _Anns) ->
-    [].
-
 -spec message(rabbit_types:exchange_name(), binary(), #content{}) -> mc:state().
 message(ExchangeName, RoutingKey, Content) ->
     message(ExchangeName, RoutingKey, Content, #{}).
@@ -355,15 +354,15 @@ deaths_to_headers(#deaths{first = {FirstQueue, FirstReason} = FirstKey,
 strip_header(#content{properties = #'P_basic'{headers = undefined}}
              = DecodedContent, _Key) ->
     DecodedContent;
-strip_header(#content{properties = Props = #'P_basic'{headers = Headers}}
-             = DecodedContent, Key) ->
+strip_header(#content{properties = Props0 = #'P_basic'{headers = Headers}}
+             = Content, Key) ->
     case lists:keysearch(Key, 1, Headers) of
-        false          -> DecodedContent;
-        {value, Found} -> Headers0 = lists:delete(Found, Headers),
-                          rabbit_binary_generator:clear_encoded_content(
-                            DecodedContent#content{
-                              properties = Props#'P_basic'{
-                                             headers = Headers0}})
+        false ->
+            Content;
+        {value, Found} ->
+            Props = Props0#'P_basic'{headers = lists:delete(Found, Headers)},
+            rabbit_binary_generator:clear_encoded_content(
+              Content#content{properties = Props})
     end.
 
 wrap(_Type, undefined) ->
@@ -465,6 +464,37 @@ message_id({utf8, S}, HKey, H0) ->
     end;
 message_id(MsgId, _, H) ->
     {H, unwrap(MsgId)}.
+
+essential_properties(#content{} = C) ->
+    %% TODO: ensure content decoded
+    #'P_basic'{delivery_mode = Mode,
+               priority = Priority,
+               correlation_id = CorrId,
+               message_id = MsgId,
+               timestamp = TimestampRaw} = Props = C#content.properties,
+    {ok, MsgTTL} = rabbit_basic:parse_expiration(Props),
+    Timestamp = case TimestampRaw of
+                    undefined ->
+                        undefined;
+                    _ ->
+                        %% timestamp should be in ms
+                        TimestampRaw * 1000
+                end,
+    Durable = Mode == 2,
+    maps_put_t(priority, Priority,
+               maps_put_t(ttl, MsgTTL,
+                          maps_put_t(timestamp, Timestamp,
+                                     maps_put_t(durable, Durable,
+                                                maps_put_t(correlation_id, CorrId,
+                                                           maps_put_t(message_id, MsgId,
+                                                                      #{})))))).
+
+maps_put_t(_K, undefined, M) ->
+    M;
+maps_put_t(_K, false, M) ->
+    M;
+maps_put_t(K, V, M) ->
+    maps:put(K, V, M).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

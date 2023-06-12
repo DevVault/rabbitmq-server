@@ -12,11 +12,21 @@
          size/1,
          header/2,
          get_property/2,
-         set_property/3,
          convert/2,
          protocol_state/3,
          serialize/2
         ]).
+
+-type message_section() ::
+    #'v1_0.header'{} |
+    #'v1_0.delivery_annotations'{} |
+    #'v1_0.message_annotations'{} |
+    #'v1_0.properties'{} |
+    #'v1_0.application_properties'{} |
+    #'v1_0.data'{} |
+    #'v1_0.amqp_sequence'{} |
+    #'v1_0.amqp_value'{} |
+    #'v1_0.footer'{}.
 
 -type maybe(T) :: T | undefined.
 -type amqp10_data() :: #'v1_0.data'{} |
@@ -25,22 +35,24 @@
 -record(msg,
         {
          header :: maybe(#'v1_0.header'{}),
-         % delivery_annotations :: maybe(#'v1_0.delivery_annotations'{}),
+         delivery_annotations :: maybe(#'v1_0.delivery_annotations'{}),
          message_annotations :: maybe(#'v1_0.message_annotations'{}),
          properties :: maybe(#'v1_0.properties'{}),
          application_properties :: maybe(#'v1_0.application_properties'{}),
-         data :: maybe(amqp10_data())
-         % footer :: maybe(#'v1_0.footer'{})
+         data :: maybe(amqp10_data()),
+         footer :: maybe(#'v1_0.footer'{})
          }).
 
 -opaque state() :: #msg{}.
 
 -export_type([
-              state/0
+              state/0,
+              message_section/0
              ]).
 
 %% mc implementation
 init(Sections) when is_list(Sections) ->
+    %% TODO: project essential header values, (durable, etc)
     Msg = decode(Sections, #msg{}),
     Anns = recover_annotations(Msg),
     {Msg, Anns};
@@ -57,13 +69,14 @@ size(#msg{data = #'v1_0.data'{content = Data}}) ->
 
 header(Key, Msg) ->
     {_Type, Value} = message_annotation(Key, Msg, undefined),
-    {undefined, Value}.
+    {Value, Msg}.
 
 get_property(durable, Msg) ->
     case Msg of
         #msg{header = #'v1_0.header'{durable = Durable}}
           when is_atom(Durable) ->
-            {Durable, Msg};
+            %% TODO: is there another boolean format with a tag?
+            Durable;
         _ ->
             %% fallback in case the source protocol was AMQP 0.9.1
             case message_annotation(<<"x-basic-delivery-mode">>, Msg, 2) of
@@ -76,23 +89,19 @@ get_property(durable, Msg) ->
 get_property(ttl, Msg) ->
     case Msg of
         #msg{header = #'v1_0.header'{ttl = Ttl}} ->
-            {Ttl, Msg};
+            Ttl;
         _ ->
             %% fallback in case the source protocol was AMQP 0.9.1
             case message_annotation(<<"x-basic-expiration">>, Msg, 2) of
                 {utf8, Expiration}  ->
                     {ok, Ttl} = rabbit_basic:parse_expiration(Expiration),
-                    {Ttl, Msg};
+                    Ttl;
                 _ ->
-                    {undefined, Msg}
+                    undefined
             end
     end;
-get_property(_P, Msg) ->
-    {undefined, Msg}.
-
-set_property(_P, _V, Msg) ->
-    %% TODO: impl at least ttl set (needed for dead lettering)
-    Msg.
+get_property(_P, _Msg) ->
+    undefined.
 
 convert(?MODULE, Msg) ->
     Msg;
@@ -223,7 +232,15 @@ wrap(Val) when is_integer(Val) ->
     %% assume string value
     {uint, Val}.
 
-recover_annotations(#msg{message_annotations = MA}) ->
+recover_annotations(#msg{message_annotations = MA} = Msg) ->
+    Durable = get_property(durable, Msg),
+    Priority = get_property(priority, Msg),
+    Timestamp = get_property(timestamp, Msg),
+    Ttl = get_property(ttl, Msg),
+    Anns = maps_put_t(durable, Durable,
+                      maps_put_t(priority, Priority,
+                                 maps_put_t(timestamp, Timestamp,
+                                            maps_put_t(ttl, Ttl, #{})))),
     Content = MA#'v1_0.message_annotations'.content,
     lists:foldl(
       fun ({{symbol, <<"x-routing-key">>},
@@ -234,7 +251,14 @@ recover_annotations(#msg{message_annotations = MA}) ->
               Acc#{exchange => Exchange};
           (_, Acc) ->
               Acc
-      end, #{}, Content).
+      end, Anns, Content).
+
+maps_put_t(_K, undefined, M) ->
+    M;
+maps_put_t(_K, false, M) ->
+    M;
+maps_put_t(K, V, M) ->
+    maps:put(K, V, M).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

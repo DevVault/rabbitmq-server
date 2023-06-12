@@ -52,7 +52,8 @@ route(X = #exchange{arguments = Args}, Msg) ->
                 {longstr, Val1} -> Val1;
                 _               -> unknown
             end,
-    %% TODO: provide a nice API for this kind of thing
+    %% Federation uses AMQP 0.9.1 internally at the moment so this
+    %% conversion may need to happen anyway
     LegacyMsg = mc:convert(rabbit_mc_amqp_legacy, Msg),
     Content = mc:protocol_state(LegacyMsg),
     Headers = rabbit_basic:extract_headers(Content),
