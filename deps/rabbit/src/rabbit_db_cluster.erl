@@ -8,6 +8,7 @@
 -module(rabbit_db_cluster).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -include_lib("rabbit_common/include/logging.hrl").
 
@@ -182,10 +183,12 @@ is_clustered_using_khepri() ->
 %% @doc Returns the list of cluster members.
 
 members() ->
-    rabbit_db:run(
-      #{mnesia => fun() -> members_using_mnesia() end,
-        khepri => fun() -> members_using_khepri() end
-       }).
+    Members = rabbit_db:run(
+                #{mnesia => fun() -> members_using_mnesia() end,
+                  khepri => fun() -> members_using_khepri() end
+                 }),
+    ?assert(lists:member(node(), Members)),
+    Members.
 
 members_using_mnesia() ->
     case rabbit_mnesia:is_running() andalso rabbit_table:is_present() of
@@ -209,7 +212,14 @@ members_using_mnesia() ->
     end.
 
 members_using_khepri() ->
-    rabbit_khepri:nodes().
+    case rabbit_khepri:nodes() of
+        []      ->
+            case rabbit_khepri:locally_known_nodes() of
+                [] -> [node()];
+                Members -> Members
+            end;
+        Members -> Members
+    end.
 
 -spec disc_members() -> Members when
       Members :: [node()].
