@@ -261,6 +261,7 @@ erlang_package.hex_package(
 )
 
 erlang_package.git_package(
+    build_file = "@rabbitmq-server//bazel:BUILD.osiris",
     repository = "rabbitmq/osiris",
     tag = "v1.5.1",
 )
