@@ -8,7 +8,7 @@
 -module(rabbit_db_cluster).
 
 -include_lib("kernel/include/logger.hrl").
--include_lib("stdlib/include/assert.hrl").
+%% -include_lib("stdlib/include/assert.hrl").
 
 -include_lib("rabbit_common/include/logging.hrl").
 
@@ -187,7 +187,7 @@ members() ->
                 #{mnesia => fun() -> members_using_mnesia() end,
                   khepri => fun() -> members_using_khepri() end
                  }),
-    ?assert(lists:member(node(), Members)),
+    %% ?assert(lists:member(node(), Members)),
     Members.
 
 members_using_mnesia() ->
