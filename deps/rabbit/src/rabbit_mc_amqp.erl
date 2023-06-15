@@ -10,7 +10,8 @@
          init/1,
          init_amqp/1,
          size/1,
-         header/2,
+         x_header/2,
+         routing_headers/2,
          get_property/2,
          convert/2,
          protocol_state/3,
@@ -27,6 +28,10 @@
     #'v1_0.amqp_sequence'{} |
     #'v1_0.amqp_value'{} |
     #'v1_0.footer'{}.
+
+-define(SIMPLE_VALUE(V), is_binary(V) orelse
+                         is_number(V) orelse
+                         is_boolean(V)).
 
 -type maybe(T) :: T | undefined.
 -type amqp10_data() :: #'v1_0.data'{} |
@@ -67,9 +72,20 @@ size(#msg{data = #'v1_0.data'{content = Data}}) ->
     MetaSize = 0,
     {MetaSize, iolist_size(Data)}.
 
-header(Key, Msg) ->
+x_header(Key, Msg) ->
     {_Type, Value} = message_annotation(Key, Msg, undefined),
-    {Value, Msg}.
+    Value.
+
+routing_headers(Msg, Opts) ->
+    IncludeX = lists:member(x_header, Opts),
+    X = case IncludeX of
+            true ->
+                message_annotations_as_simple_map(Msg);
+            false ->
+                #{}
+        end,
+    application_properties_as_simple_map(Msg, X).
+
 
 get_property(durable, Msg) ->
     case Msg of
@@ -186,6 +202,31 @@ message_annotation(Key, #msg{message_annotations =
         false ->
             Default
     end.
+
+message_annotations_as_simple_map(#msg{message_annotations = undefined}) ->
+    #{};
+message_annotations_as_simple_map(
+  #msg{message_annotations = #'v1_0.message_annotations'{content = Content}}) ->
+    %% the section record format really is terrible
+    lists:foldl(fun ({{symbol, K},{_T, V}}, Acc)
+                      when ?SIMPLE_VALUE(V) ->
+                        Acc#{K => V};
+                    (_, Acc)->
+                        Acc
+                end, #{}, Content).
+
+application_properties_as_simple_map(#msg{application_properties = undefined}, M) ->
+    M;
+application_properties_as_simple_map(
+  #msg{application_properties = #'v1_0.application_properties'{content = Content}},
+  M) ->
+    %% the section record format really is terrible
+    lists:foldl(fun ({{symbol, K}, {_T, V}}, Acc)
+                      when ?SIMPLE_VALUE(V) ->
+                        Acc#{K => V};
+                    (_, Acc)->
+                        Acc
+                end, M, Content).
 
 decode([], Acc) ->
     Acc;

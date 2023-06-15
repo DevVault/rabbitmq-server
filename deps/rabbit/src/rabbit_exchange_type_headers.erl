@@ -32,17 +32,58 @@ description() ->
 
 serialise_events() -> false.
 
-route(#exchange{name = Name}, Msg0) ->
-    %% TODO converting to amqp legacy means this will be slow for all protocols
-    %% except amqp legacy, ok for now to get it working but will need addressing
-    Msg = mc:convert(rabbit_mc_amqp_legacy, Msg0),
-    #content{} = Content = mc:protocol_state(Msg),
-    Headers = case (Content#content.properties)#'P_basic'.headers of
-                  undefined -> [];
-                  H         -> rabbit_misc:sort_field_table(H)
-              end,
+route(#exchange{name = Name}, Msg) ->
+    %% TODO: find a way not to extract x headers unless necessary
+    Headers = mc:routing_headers(Msg, [x_headers]),
+
     rabbit_router:match_bindings(
-      Name, fun (#binding{args = Spec}) -> headers_match(Spec, Headers) end).
+      Name, fun(#binding{args = Args}) ->
+                    case rabbit_misc:table_lookup(Args, <<"x-match">>) of
+                        {longstr, <<"any">>} ->
+                            match_any(Args, Headers, fun match/2);
+                        {longstr, <<"any-with-x">>} ->
+                            match_any(Args, Headers, fun match_x/2);
+                        {longstr, <<"all-with-x">>} ->
+                            match_all(Args, Headers, fun match_x/2);
+                        _ ->
+                            match_all(Args, Headers, fun match/2)
+                    end
+            end).
+
+match_x({<<"x-match">>, _, _}, _M) ->
+    skip;
+match_x({K, void, _}, M) ->
+    maps:is_key(K, M);
+match_x({K, _, V}, M) ->
+    maps:get(K, M, undefined) =:= V.
+
+match({<<"x-", _/binary>>, _, _}, _M) ->
+    skip;
+match({K, void, _}, M) ->
+    maps:is_key(K, M);
+match({K, _, V}, M) ->
+    maps:get(K, M, undefined) =:= V.
+
+
+match_all([], _, _MatchFun) ->
+    true;
+match_all([Arg | Rem], M, Fun) ->
+    case Fun(Arg, M) of
+        false ->
+            false;
+        _ ->
+            match_all(Rem, M, Fun)
+    end.
+
+match_any([], _, _Fun) ->
+    false;
+match_any([Arg | Rem], M, Fun) ->
+    case Fun(Arg, M) of
+        true ->
+            true;
+        _ ->
+            match_any(Rem, M, Fun)
+    end.
 
 validate_binding(_X, #binding{args = Args}) ->
     case rabbit_misc:table_lookup(Args, <<"x-match">>) of

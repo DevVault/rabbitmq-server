@@ -10,7 +10,8 @@
          init/1,
          init_amqp/1,
          size/1,
-         header/2,
+         x_header/2,
+         routing_headers/2,
          % get_property/2,
          % set_property/3,
          convert/2,
@@ -19,7 +20,8 @@
          message/4,
          message/5,
          from_basic_message/1,
-         set_property/3
+         set_property/3,
+         serialize/2
         ]).
 
 -define(HEADER_GUESS_SIZE, 100). %% see determine_persist_to/2
@@ -135,15 +137,34 @@ size(#content{properties_bin = PropsBin,
                end,
     {MetaSize, iolist_size(Payload)}.
 
-header(_Key, #content{properties = #'P_basic'{headers = undefined}} = C) ->
+x_header(_Key, #content{properties = #'P_basic'{headers = undefined}} = C) ->
     {undefined, C};
-header(Key, #content{properties = #'P_basic'{headers = Headers}} = C) ->
+x_header(Key, #content{properties = #'P_basic'{headers = Headers}} = C) ->
     case rabbit_misc:table_lookup(Headers, Key) of
         undefined ->
             {undefined, C};
         {_Type, Value} ->
             {Value, C}
     end.
+
+routing_headers(#content{properties = #'P_basic'{headers = undefined}}, _Opts) ->
+    #{};
+routing_headers(#content{properties = #'P_basic'{headers = Headers}}, Opts) ->
+    IncludeX = lists:member(x_headers, Opts),
+    %% TODO: filter out complex AMQP legacy values such as array and table?
+    lists:foldl(
+      fun({<<"x-", _/binary>> = Key, _T, Value}, Acc) ->
+              case IncludeX of
+                  true ->
+                      Acc#{Key => Value};
+                  false ->
+                      Acc
+              end;
+         ({Key, _T,  Value}, Acc) ->
+              Acc#{Key => Value}
+      end, #{}, Headers).
+
+
 
 % get_property(durable,
 %              #content{properties = #'P_basic'{delivery_mode = Mode}} = C) ->
@@ -171,6 +192,9 @@ set_property(ttl, undefined, #content{properties = Props} = C) ->
 set_property(_P, _V, Msg) ->
     %% TODO: impl at least ttl set (needed for dead lettering)
     Msg.
+
+serialize(_, _) ->
+    <<>>.
 
 convert(?MODULE, C) ->
     C;

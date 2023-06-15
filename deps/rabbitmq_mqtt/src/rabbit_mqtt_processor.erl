@@ -1405,7 +1405,7 @@ deliver_to_client(Msgs, Ack, State) ->
 deliver_one_to_client({QNameOrType, QPid, QMsgId, _Redelivered, Msg} = Delivery,
                       AckRequired, State0) ->
     %% internal annotation, should be atom annotation key?
-    PublisherQoS = case mc:proto_header(<<"x-mqtt-publish-qos">>, Msg) of
+    PublisherQoS = case mc:x_header(<<"x-mqtt-publish-qos">>, Msg) of
                        undefined ->
                            %% non-MQTT publishes are assumed to be QoS 1 regardless of delivery_mode
                            ?QOS_1;

@@ -18,7 +18,8 @@
          timestamp/1,
          priority/1,
          set_ttl/2,
-         proto_header/2,
+         x_header/2,
+         routing_headers/2,
          %%%
          convert/2,
          protocol_state/1,
@@ -84,30 +85,32 @@ set_annotation(<<"x-", _/binary>> = Key, Value,
 
 
 is_persistent(#basic_message{content = Content}) ->
-    element(1, get_property(durable, Content)).
+    get_property(durable, Content).
 
 ttl(#basic_message{content = Content}) ->
-    element(1, get_property(ttl, Content)).
+    get_property(?FUNCTION_NAME, Content).
 
 timestamp(#basic_message{content = Content}) ->
-    element(1, get_property(timestamp, Content)).
+    get_property(?FUNCTION_NAME, Content).
 
 priority(#basic_message{content = Content}) ->
-    element(1, get_property(priority, Content)).
+    get_property(?FUNCTION_NAME, Content).
 
 correlation_id(#basic_message{content = Content}) ->
-    element(1, get_property(correlation_id, Content)).
+    get_property(?FUNCTION_NAME, Content).
 
 message_id(#basic_message{content = Content}) ->
-    element(1, get_property(message_id, Content)).
+    get_property(message_id, Content).
 
 set_ttl(Value, #basic_message{content = Content0} = Msg) ->
     Content = rabbit_mc_amqp_legacy:set_property(ttl, Value, Content0),
     Msg#basic_message{content = Content}.
 
-proto_header(Key,#basic_message{content = Content}) ->
-    element(1, rabbit_mc_amqp_legacy:header(Key, Content)).
+x_header(Key,#basic_message{content = Content}) ->
+    element(1, rabbit_mc_amqp_legacy:x_header(Key, Content)).
 
+routing_headers(#basic_message{content = Content}, Opts) ->
+    rabbit_mc_amqp_legacy:routing_headers(Content, Opts).
 
 convert(rabbit_mc_amqp_legacy, #basic_message{} = BasicMsg) ->
     BasicMsg;

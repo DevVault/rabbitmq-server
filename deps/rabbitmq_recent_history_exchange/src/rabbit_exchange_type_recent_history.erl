@@ -123,7 +123,7 @@ disable_plugin() ->
 %%----------------------------------------------------------------------------
 %%private
 maybe_cache_msg(XName, Message, Length) ->
-    case mc:proto_header(<<"x-recent-history-no-store">>, Message) of
+    case mc:x_header(<<"x-recent-history-no-store">>, Message) of
         true ->
             ok;
         _ ->

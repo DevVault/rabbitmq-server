@@ -14,7 +14,8 @@
          timestamp/1,
          priority/1,
          set_ttl/2,
-         proto_header/2,
+         x_header/2,
+         routing_headers/2,
          %%
          convert/2,
          protocol_state/1,
@@ -75,8 +76,11 @@
     {MetadataSize :: non_neg_integer(),
      PayloadSize :: non_neg_integer()}.
 
--callback header(binary(), proto_state()) ->
+-callback x_header(binary(), proto_state()) ->
     {property_value(), proto_state()}.
+
+-callback routing_headers(proto_state(), [x_headers | complex_types]) ->
+    #{binary() => term()}.
 
 %% all protocol must be able to convert to amqp (1.0)
 -callback convert(protocol(), proto_state()) ->
@@ -134,14 +138,42 @@ set_annotation(Key, Value, #?MODULE{annotations = Anns} = State) ->
 set_annotation(Key, Value, BasicMessage) ->
     mc_compat:set_annotation(Key, Value, BasicMessage).
 
--spec proto_header(Key :: binary(), state()) ->
+-spec x_header(Key :: binary(), state()) ->
     property_value() | undefined.
-proto_header(Key, #?MODULE{protocol = Proto,
-                           data = Data}) ->
-    {Result, _} = Proto:header(Key, Data),
-    Result;
-proto_header(Key, BasicMsg) ->
-    mc_compat:proto_header(Key, BasicMsg).
+x_header(Key, #?MODULE{protocol = Proto,
+                       annotations = Anns,
+                       data = Data}) ->
+    %% x-headers may be have been added to the annotations map so
+    %% we need to check that first
+    case Anns of
+        #{Key := Value} ->
+            Value;
+        _ ->
+            %% if not we have to call into the protocol specific handler
+            {Result, _} = Proto:x_header(Key, Data),
+            Result
+    end;
+x_header(Key, BasicMsg) ->
+    mc_compat:x_header(Key, BasicMsg).
+
+-spec routing_headers(state(), [x_header | complex_types]) ->
+    #{binary() => property_value()}.
+routing_headers(#?MODULE{protocol = Proto,
+                         annotations = Anns,
+                         data = Data}, Options) ->
+    %% TODO: fake death headers also as this is what most users
+    %% use for x- filtering
+    New = case lists:member(x_headers, Options) of
+              true ->
+                  maps:filter(fun (<<"x-", _/binary>>, _) -> true;
+                                  (_, _) -> false
+                              end, Anns);
+              false ->
+                  #{}
+          end,
+    maps:merge(Proto:routing_headers(Data, Options), New);
+routing_headers(Key, BasicMsg) ->
+    mc_compat:routing_headers(Key, BasicMsg).
 
 -spec is_persistent(state()) -> boolean().
 is_persistent(#?MODULE{annotations = Anns}) ->
@@ -224,14 +256,14 @@ prepare(State) ->
 record_death(Reason, SourceQueue,
              #?MODULE{protocol = _Mod,
                       data = _Data,
-                      annotations = Anns,
+                      annotations = Anns0,
                       deaths = Ds0} = State)
   when is_atom(Reason) andalso is_binary(SourceQueue) ->
     Key = {SourceQueue, Reason},
-    Exchange = maps:get(exchange, Anns),
-    RoutingKeys = maps:get(routing_keys, Anns),
+    Exchange = maps:get(exchange, Anns0),
+    RoutingKeys = maps:get(routing_keys, Anns0),
     Timestamp = os:system_time(millisecond),
-    Ttl = maps:get(ttl, Anns, undefined),
+    Ttl = maps:get(ttl, Anns0, undefined),
     case Ds0 of
         undefined ->
             Ds = #deaths{last = Key,
@@ -241,8 +273,12 @@ record_death(Reason, SourceQueue,
                                                    exchange = Exchange,
                                                    routing_keys = RoutingKeys,
                                                    timestamp = Timestamp}}},
+            Anns = Anns0#{<<"x-first-death-reason">> => atom_to_binary(Reason),
+                          <<"x-first-death-queue">> => SourceQueue,
+                          <<"x-first-death-exchange">> => Exchange},
 
-            State#?MODULE{deaths = Ds};
+            State#?MODULE{deaths = Ds,
+                         annotations = Anns};
         #deaths{records = Rs} ->
             Death = #death{count = C} = maps:get(Key, Rs,
                                                  #death{ttl = Ttl,
