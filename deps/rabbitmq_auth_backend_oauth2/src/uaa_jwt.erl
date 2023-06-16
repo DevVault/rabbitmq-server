@@ -48,13 +48,12 @@ update_jwks_signing_keys(ResourceServerId) ->
 decode_and_verify(Token) ->
   case uaa_jwt_jwt:get_key_id(Token) of
     {ok, KeyId} ->
-      case resolve_resource_server_id(Token) of
-        {error, _} = Err ->
-            Err;
+      case uaa_jwt_jwt:resolve_resource_server_id(Token) of
+        {error, _} = Err -> Err;
         ResourceServerId ->
           case rabbit_oauth2_config:get_jwk(ResourceServerId, KeyId) of
             {ok, JWK} ->
-                uaa_jwt_jwt:decode_and_verify(JWK, Token);
+                uaa_jwt_jwt:decode_and_verify(JWK, Token, ResourceServerId);
             {error, _} = Err ->
                 Err
           end
@@ -63,11 +62,6 @@ decode_and_verify(Token) ->
       Err
   end.
 
-resolve_resource_server_id(Token) ->
-  case uaa_jwt_jwt:get_aud(Token) of
-    undefined -> rabbit_oauth2_config:get_default_resource_server_id();
-    Audience -> rabbit_oauth2_config:find_audience_in_resource_server_ids(Audience)
-  end.
 
 -spec get_jwk(binary(), binary(), binary()) -> {ok, map()} | {error, term()}.
 get_jwk(KeyId, ResourceServerId, AllowUpdateJwks) ->

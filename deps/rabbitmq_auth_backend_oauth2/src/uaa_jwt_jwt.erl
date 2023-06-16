@@ -6,7 +6,7 @@
 %%
 -module(uaa_jwt_jwt).
 
--export([decode/1, decode_and_verify/2, get_key_id/1, get_aud/1]).
+-export([decode/1, decode_and_verify/3, get_key_id/1, get_aud/1, resolve_resource_server_id/1]).
 
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
@@ -19,10 +19,10 @@ decode(Token) ->
         {error, {invalid_token, Type, Err, Stacktrace}}
     end.
 
-decode_and_verify(Jwk, Token) ->
-    UaaEnv = application:get_env(rabbitmq_auth_backend_oauth2, key_config, []),
+decode_and_verify(Jwk, Token, ResourceServerId) ->
+    KeConfig = rabbit_oauth2_config:get_key_config(ResourceServerId),
     Verify =
-        case proplists:get_value(algorithms, UaaEnv) of
+        case proplists:get_value(algorithms, KeConfig) of
             undefined ->
                 jose_jwt:verify(Jwk, Token);
             Algs ->
@@ -33,11 +33,31 @@ decode_and_verify(Jwk, Token) ->
         {false, #jose_jwt{fields = Fields}, _} -> {false, Fields}
     end.
 
+
+resolve_resource_server_id(Token) ->
+  case get_aud(Token) of
+    undefined ->
+      case rabbit_oauth2_config:is_verify_aud() of
+        true -> {error, no_matching_aud_found};
+        false -> rabbit_oauth2_config:get_default_resource_server_id()
+      end;
+    {ok, Audience} ->
+      case rabbit_oauth2_config:find_audience_in_resource_server_ids(Audience) of
+          {ok, ResourceServerId} -> ResourceServerId;
+          {error, only_one_resource_server_as_audience_found_many} = Error -> Error;
+          {error, key_not_found} ->
+            case rabbit_oauth2_config:is_verify_aud() of
+              true -> {error, no_matching_aud_found};
+              false -> rabbit_oauth2_config:get_default_resource_server_id()
+            end
+      end
+  end.
+
 get_key_id(Token) ->
     try
         case jose_jwt:peek_protected(Token) of
             #jose_jws{fields = #{<<"kid">> := Kid}} -> {ok, Kid};
-            #jose_jws{}                             -> get_default_key()
+            #jose_jws{}                             -> get_default_key(resolve_resource_server_id(Token))
         end
     catch Type:Err:Stacktrace ->
         {error, {invalid_token, Type, Err, Stacktrace}}
@@ -54,9 +74,9 @@ get_aud(Token) ->
     end.
 
 
-get_default_key() ->
-    UaaEnv = application:get_env(rabbitmq_auth_backend_oauth2, key_config, []),
-    case proplists:get_value(default_key, UaaEnv, undefined) of
+get_default_key(ResourceServerId) ->
+    KeyConfig = rabbit_oauth2_config:get_key_config(ResourceServerId),
+    case proplists:get_value(default_key, KeyConfig, undefined) of
         undefined -> {error, no_key};
         Val       -> {ok, Val}
     end.

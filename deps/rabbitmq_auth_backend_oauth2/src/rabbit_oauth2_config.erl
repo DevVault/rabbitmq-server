@@ -176,6 +176,10 @@ find_audience_in_resource_server_ids(AudList) when is_list(AudList) ->
    [] -> {error, key_not_found}
   end.
 
+-spec is_verify_aud() -> boolean().
+is_verify_aud() ->
+  application:get_env(?APP, verify_aud, true).
+
 intersection(List1, List2) ->
     [I || I <- List1, lists:member(I, List2)].
 
