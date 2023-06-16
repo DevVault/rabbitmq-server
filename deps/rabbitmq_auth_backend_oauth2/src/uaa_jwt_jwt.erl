@@ -6,7 +6,7 @@
 %%
 -module(uaa_jwt_jwt).
 
--export([decode/1, decode_and_verify/2, get_key_id/1]).
+-export([decode/1, decode_and_verify/2, get_key_id/1, get_aud/1]).
 
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
@@ -38,6 +38,16 @@ get_key_id(Token) ->
         case jose_jwt:peek_protected(Token) of
             #jose_jws{fields = #{<<"kid">> := Kid}} -> {ok, Kid};
             #jose_jws{}                             -> get_default_key()
+        end
+    catch Type:Err:Stacktrace ->
+        {error, {invalid_token, Type, Err, Stacktrace}}
+    end.
+
+get_aud(Token) ->
+    try
+        case jose_jwt:peek_payload(Token) of
+            #jose_jwt{fields = #{<<"aud">> := Aud}} -> {ok, Aud};
+            #jose_jwt{}                             -> undefined
         end
     catch Type:Err:Stacktrace ->
         {error, {invalid_token, Type, Err, Stacktrace}}

@@ -104,6 +104,10 @@ rabbitmq_integration_suite(
 )
 
 rabbitmq_integration_suite(
+    name = "rabbit_oauth2_config_SUITE",
+)
+
+rabbitmq_integration_suite(
     name = "jwks_SUITE",
     additional_beam = [
         "test/rabbit_auth_backend_oauth2_test_util.beam",

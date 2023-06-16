@@ -42,9 +42,7 @@
 -define(COMPLEX_CLAIM_APP_ENV_KEY, extra_scopes_source).
 %% scope aliases map "role names" to a set of scopes
 -define(SCOPE_MAPPINGS_APP_ENV_KEY, scope_aliases).
-%% list of JWT claims (such as <<"sub">>) used to determine the username
--define(PREFERRED_USERNAME_CLAIMS, preferred_username_claims).
--define(DEFAULT_PREFERRED_USERNAME_CLAIMS, [<<"sub">>, <<"client_id">>]).
+
 
 %%
 %% Key JWT fields
@@ -134,9 +132,7 @@ authenticate(_, AuthProps0) ->
           {refused, "Authentication using an OAuth 2/JWT token failed: ~tp", [Err]};
         {ok, DecodedToken} ->
             Func = fun(Token0) ->
-                        Username = username_from(
-                          application:get_env(?APP, ?PREFERRED_USERNAME_CLAIMS, []),
-                          Token0),
+                        Username = username_from(rabbit_oauth2_config:get_preferred_username_claims(), Token0),
                         Tags     = tags_from(Token0),
 
                         {ok, #auth_user{username = Username,
@@ -620,8 +616,7 @@ token_from_context(AuthProps) ->
 
 -spec username_from(list(), map()) -> binary() | undefined.
 username_from(PreferredUsernameClaims, DecodedToken) ->
-    UsernameClaims = append_or_return_default(PreferredUsernameClaims, ?DEFAULT_PREFERRED_USERNAME_CLAIMS),
-    ResolvedUsernameClaims = lists:filtermap(fun(Claim) -> find_claim_in_token(Claim, DecodedToken) end, UsernameClaims),
+    ResolvedUsernameClaims = lists:filtermap(fun(Claim) -> find_claim_in_token(Claim, DecodedToken) end, PreferredUsernameClaims),
     Username = case ResolvedUsernameClaims of
       [ ] -> <<"unknown">>;
       [ _One ] -> _One;
@@ -630,13 +625,6 @@ username_from(PreferredUsernameClaims, DecodedToken) ->
     rabbit_log:debug("Computing username from client's JWT token: ~ts -> ~ts ",
       [lists:flatten(io_lib:format("~p",[ResolvedUsernameClaims])), Username]),
     Username.
-
-append_or_return_default(ListOrBinary, Default) ->
-  case ListOrBinary of
-    VarList when is_list(VarList) -> VarList ++ Default;
-    VarBinary when is_binary(VarBinary) -> [VarBinary] ++ Default;
-    _ -> Default
-  end.
 
 find_claim_in_token(Claim, Token) ->
   case maps:get(Claim, Token, undefined) of

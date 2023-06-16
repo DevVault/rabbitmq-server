@@ -1117,27 +1117,6 @@ test_command_json(_) ->
 
 test_username_from(_) ->
     Pairs = [
-      { <<"resolved username from DEFAULT_PREFERRED_USERNAME_CLAIMS 'sub' ">>,  % Comment
-        [ ],  % Given this configure preferred_username_claims
-        #{ % When we test this Token
-          <<"sub">> => <<"rabbit_user">>
-         },
-        <<"rabbit_user">>  % We expect username to be this one
-      },
-      { <<"resolved username from DEFAULT_PREFERRED_USERNAME_CLAIMS when there are no preferred_username_claims">>,  % Comment
-        <<>>,  % Given this configure preferred_username_claims
-        #{ % When we test this Token
-          <<"sub">> => <<"rabbit_user">>
-         },
-        <<"rabbit_user">>  % We expect username to be this one
-      },
-      { <<"resolved username from DEFAULT_PREFERRED_USERNAME_CLAIMS 'client_id' ">>,  % Comment
-        [ ],  % Given this configure preferred_username_claims
-        #{ % When we test this Token
-          <<"client_id">> => <<"rabbit_user">>
-         },
-        <<"rabbit_user">>  % We expect username to be this one
-      },
       { <<"resolve username from 1st claim in the array of configured claims ">>,
         [<<"user_name">>, <<"email">>],
         #{
@@ -1154,7 +1133,7 @@ test_username_from(_) ->
         <<"rabbit_user">>
       },
       { <<"resolve username from configured string claim ">>,
-        <<"email">>,
+        [<<"email">>],
         #{
           <<"email">> => <<"rabbit_user">>
          },

@@ -132,10 +132,3 @@ output(E, _Opts) ->
     'Elixir.RabbitMQ.CLI.DefaultOutput':output(E).
 
 formatter() -> 'Elixir.RabbitMQ.CLI.Formatters.Erlang'.
-
-
-
-
-
-
-

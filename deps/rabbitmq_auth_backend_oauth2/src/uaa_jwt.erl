@@ -7,11 +7,9 @@
 -module(uaa_jwt).
 
 -export([add_signing_key/3,
-         remove_signing_key/1,
          decode_and_verify/1,
-         get_jwk/1,
-         verify_signing_key/2,
-         signing_keys/0]).
+         get_jwk/3,
+         verify_signing_key/2]).
 
 -export([client_id/1, sub/1, client_id/2, sub/2]).
 
@@ -22,48 +20,25 @@
 -type key_type() :: json | pem | map.
 
 -spec add_signing_key(binary(), key_type(), binary() | map()) -> {ok, map()} | {error, term()}.
-
 add_signing_key(KeyId, Type, Value) ->
     case verify_signing_key(Type, Value) of
         ok ->
-            SigningKeys0 = signing_keys(),
-            SigningKeys1 = maps:put(KeyId, {Type, Value}, SigningKeys0),
-            ok = update_uaa_jwt_signing_keys(SigningKeys1),
-            {ok, SigningKeys1};
+            {ok, rabbit_oauth2_config:add_signing_key(KeyId, {Type, Value})};
         {error, _} = Err ->
             Err
     end.
 
-remove_signing_key(KeyId) ->
-    UaaEnv = application:get_env(?APP, key_config, []),
-    Keys0 = proplists:get_value(signing_keys, UaaEnv),
-    Keys1 = maps:remove(KeyId, Keys0),
-    update_uaa_jwt_signing_keys(UaaEnv, Keys1).
-
--spec update_uaa_jwt_signing_keys(map()) -> ok.
-update_uaa_jwt_signing_keys(SigningKeys) ->
-    UaaEnv0 = application:get_env(?APP, key_config, []),
-    update_uaa_jwt_signing_keys(UaaEnv0, SigningKeys).
-
--spec update_uaa_jwt_signing_keys([term()], map()) -> ok.
-update_uaa_jwt_signing_keys(UaaEnv0, SigningKeys) ->
-    UaaEnv1 = proplists:delete(signing_keys, UaaEnv0),
-    UaaEnv2 = [{signing_keys, SigningKeys} | UaaEnv1],
-    application:set_env(?APP, key_config, UaaEnv2).
-
--spec update_jwks_signing_keys() -> ok | {error, term()}.
-update_jwks_signing_keys() ->
-    UaaEnv = application:get_env(?APP, key_config, []),
-    case proplists:get_value(jwks_url, UaaEnv) of
+-spec update_jwks_signing_keys(term()) -> ok | {error, term()}.
+update_jwks_signing_keys(ResourceServerId) ->
+    case rabbit_oauth2_config:get_jwks_url(ResourceServerId) of
         undefined ->
             {error, no_jwks_url};
         JwksUrl ->
-            rabbit_log:debug("Retrieving signing keys from ~ts", [JwksUrl]),
-            case uaa_jwks:get(JwksUrl) of
+            case uaa_jwks:get(JwksUrl, rabbit_oauth2_config:get_key_config(ResourceServerId)) of
                 {ok, {_, _, JwksBody}} ->
                     KeyList = maps:get(<<"keys">>, jose:decode(erlang:iolist_to_binary(JwksBody)), []),
                     Keys = maps:from_list(lists:map(fun(Key) -> {maps:get(<<"kid">>, Key, undefined), {json, Key}} end, KeyList)),
-                    update_uaa_jwt_signing_keys(UaaEnv, Keys);
+                    rabbit_oauth2_config:update_signing_keys(ResourceServerId, Keys);
                 {error, _} = Err ->
                     Err
             end
@@ -71,31 +46,38 @@ update_jwks_signing_keys() ->
 
 -spec decode_and_verify(binary()) -> {boolean(), map()} | {error, term()}.
 decode_and_verify(Token) ->
-    case uaa_jwt_jwt:get_key_id(Token) of
-        {ok, KeyId} ->
-            case get_jwk(KeyId) of
-                {ok, JWK} ->
-                    uaa_jwt_jwt:decode_and_verify(JWK, Token);
-                {error, _} = Err ->
-                    Err
-            end;
+  case uaa_jwt_jwt:get_key_id(Token) of
+    {ok, KeyId} ->
+      case resolve_resource_server_id(Token) of
         {error, _} = Err ->
-            Err
-    end.
+            Err;
+        ResourceServerId ->
+          case rabbit_oauth2_config:get_jwk(ResourceServerId, KeyId) of
+            {ok, JWK} ->
+                uaa_jwt_jwt:decode_and_verify(JWK, Token);
+            {error, _} = Err ->
+                Err
+          end
+      end;
+    {error, _} = Err ->
+      Err
+  end.
 
--spec get_jwk(binary()) -> {ok, map()} | {error, term()}.
-get_jwk(KeyId) ->
-    get_jwk(KeyId, true).
+resolve_resource_server_id(Token) ->
+  case uaa_jwt_jwt:get_aud(Token) of
+    undefined -> rabbit_oauth2_config:get_default_resource_server_id();
+    Audience -> rabbit_oauth2_config:find_audience_in_resource_server_ids(Audience)
+  end.
 
-get_jwk(KeyId, AllowUpdateJwks) ->
-    Keys = signing_keys(),
-    case maps:get(KeyId, Keys, undefined) of
+-spec get_jwk(binary(), binary(), binary()) -> {ok, map()} | {error, term()}.
+get_jwk(KeyId, ResourceServerId, AllowUpdateJwks) ->
+    case rabbit_oauth2_config:get_jwk(KeyId, ResourceServerId) of
         undefined ->
             if
                 AllowUpdateJwks ->
-                    case update_jwks_signing_keys() of
+                    case update_jwks_signing_keys(ResourceServerId) of
                         ok ->
-                            get_jwk(KeyId, false);
+                            get_jwk(ResourceServerId, KeyId, false);
                         {error, no_jwks_url} ->
                             {error, key_not_found};
                         {error, _} = Err ->
@@ -131,9 +113,6 @@ verify_signing_key(Type, Value) ->
         Err -> Err
     end.
 
-signing_keys() ->
-    UaaEnv = application:get_env(?APP, key_config, []),
-    proplists:get_value(signing_keys, UaaEnv, #{}).
 
 -spec client_id(map()) -> binary() | undefined.
 client_id(DecodedToken) ->
