@@ -660,6 +660,8 @@ test_successful_access_with_a_token(_) ->
     Username = <<"username">>,
     Token    = ?UTIL_MOD:sign_token_hs(?UTIL_MOD:token_with_sub(?UTIL_MOD:fixture_token(), Username), Jwk),
 
+    ct:log ("signing key ~p", [rabbit_oauth2_config:get_signing_key(<<"token-key">>, <<"rabbitmq">>)]),
+    
     {ok, #auth_user{username = Username} = User} =
         rabbit_auth_backend_oauth2:user_login_authentication(Username, [{password, Token}]),
     {ok, #auth_user{username = Username} = User} =

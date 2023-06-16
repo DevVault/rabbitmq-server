@@ -8,7 +8,7 @@
 
 -export([add_signing_key/3,
          decode_and_verify/1,
-         get_jwk/3,
+         get_jwk/2,
          verify_signing_key/2]).
 
 -export([client_id/1, sub/1, client_id/2, sub/2]).
@@ -51,7 +51,7 @@ decode_and_verify(Token) ->
       case uaa_jwt_jwt:resolve_resource_server_id(Token) of
         {error, _} = Err -> Err;
         ResourceServerId ->
-          case get_jwk(ResourceServerId, KeyId) of
+          case get_jwk(KeyId, ResourceServerId) of
             {ok, JWK} ->
                 uaa_jwt_jwt:decode_and_verify(JWK, Token, ResourceServerId);
             {error, _} = Err ->
@@ -64,11 +64,11 @@ decode_and_verify(Token) ->
 
 -spec get_jwk(binary(), binary()) -> {ok, map()} | {error, term()}.
 get_jwk(KeyId, ResourceServerId) ->
-  get_jwk(KeyId, ResourceServerId, false).
+    get_jwk(KeyId, ResourceServerId, true).
 
--spec get_jwk(binary(), binary(), binary()) -> {ok, map()} | {error, term()}.
 get_jwk(KeyId, ResourceServerId, AllowUpdateJwks) ->
-    case rabbit_oauth2_config:get_jwk(KeyId, ResourceServerId) of
+    ct:log("get_jwk  ~p ~p ~p", [KeyId, ResourceServerId, AllowUpdateJwks]),
+    case rabbit_oauth2_config:get_signing_key(KeyId, ResourceServerId) of
         undefined ->
             if
                 AllowUpdateJwks ->

@@ -135,8 +135,10 @@ get_key_config(TopResourceServerId, ResourceServerId) when ResourceServerId =/= 
 get_signing_key(KeyId, ResourceServerId) -> get_signing_key(get_root_resource_server_id(), KeyId, ResourceServerId).
 
 get_signing_key(TopResourceServerId, KeyId, ResourceServerId) when ResourceServerId =:= TopResourceServerId ->
+  ct:log("get_signing_key ~p ~p ~p", [TopResourceServerId, KeyId, ResourceServerId]),
   maps:get(KeyId, get_signing_keys(), undefined);
 get_signing_key(TopResourceServerId, KeyId, ResourceServerId) when ResourceServerId =/= TopResourceServerId ->
+  ct:log("get_signing_key ~p ~p ~p", [TopResourceServerId, KeyId, ResourceServerId]),
   maps:get(KeyId, get_signing_keys(ResourceServerId), undefined).
 
 

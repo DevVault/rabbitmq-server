@@ -193,6 +193,9 @@ call_add_signing_key(Config, Args) ->
 call_get_signing_keys(Config, Args) ->
   rabbit_ct_broker_helpers:rpc(Config, 0, rabbit_oauth2_config, get_signing_keys, Args).
 
+call_get_signing_key(Config, Args) ->
+  rabbit_ct_broker_helpers:rpc(Config, 0, rabbit_oauth2_config, get_signing_key, Args).
+
 call_add_signing_keys(Config, Args) ->
   rabbit_ct_broker_helpers:rpc(Config, 0, rabbit_oauth2_config, add_signing_keys, Args).
 
@@ -204,7 +207,9 @@ add_signing_keys_for_top_level_resource_server(Config) ->
   #{<<"mykey-1">> := <<"some key 1">>} = call_get_signing_keys(Config, []),
 
   #{<<"mykey-1">> := <<"some key 1">>, <<"mykey-2">> := <<"some key 2">>} = call_add_signing_key(Config, [<<"mykey-2">>, <<"some key 2">>]),
-  #{<<"mykey-1">> := <<"some key 1">>, <<"mykey-2">> := <<"some key 2">>} = call_get_signing_keys(Config, []).
+  #{<<"mykey-1">> := <<"some key 1">>, <<"mykey-2">> := <<"some key 2">>} = call_get_signing_keys(Config, []),
+
+  ?assertEqual(<<"some key 1">>, call_get_signing_key(Config, [<<"mykey-1">>, ?RABBITMQ])).
 
 add_signing_keys_for_top_specific_resource_server(Config) ->
   #{<<"mykey-3-1">> := <<"some key 3-1">>} = call_add_signing_key(Config, [<<"my-resource-server-3">>, <<"mykey-3-1">>, <<"some key 3-1">>]),
@@ -215,7 +220,9 @@ add_signing_keys_for_top_specific_resource_server(Config) ->
   #{<<"mykey-3-1">> := <<"some key 3-1">>, <<"mykey-3-2">> := <<"some key 3-2">>} = call_add_signing_key(Config, [<<"my-resource-server-3">>, <<"mykey-3-2">>, <<"some key 3-2">>]),
 
   #{<<"mykey-1">> := <<"some key 1">>} = call_add_signing_key(Config, [<<"mykey-1">>, <<"some key 1">>]),
-  #{<<"mykey-1">> := <<"some key 1">>} = call_get_signing_keys(Config, []).
+  #{<<"mykey-1">> := <<"some key 1">>} = call_get_signing_keys(Config, []),
+
+  ?assertEqual(<<"some key 3-1">>, call_get_signing_key(Config, [<<"mykey-3-1">> , <<"my-resource-server-3">>])).
 
 replace_signing_keys_for_top_level_resource_server(Config) ->
   call_add_signing_key(Config, [<<"mykey-1">>, <<"some key 1">>]),
