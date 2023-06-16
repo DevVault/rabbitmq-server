@@ -31,10 +31,6 @@ all() ->
         test_unsuccessful_access_with_a_bogus_token,
         test_restricted_vhost_access_with_a_valid_token,
         test_insufficient_permissions_in_a_valid_token,
-        test_command_json,
-        test_command_pem,
-        test_username_from,
-        test_command_pem_no_kid,
         test_token_expiration,
         test_incorrect_kid,
         test_post_process_token_payload,
@@ -50,7 +46,18 @@ all() ->
         test_successful_access_with_a_token_that_uses_multiple_scope_aliases_in_extra_scope_source_field,
         test_unsuccessful_access_with_a_token_that_uses_missing_scope_alias_in_extra_scope_source_field,
         test_default_ssl_options,
-        test_default_ssl_options_with_cacertfile
+        test_default_ssl_options_with_cacertfile,
+        {group, with_rabbitmq_node}
+    ].
+groups() ->
+    [
+      {with_rabbitmq_node, [], [
+          test_command_json,
+          test_command_pem,
+          test_username_from,
+          test_command_pem_no_kid
+        ]
+      }
     ].
 
 init_per_suite(Config) ->
@@ -67,6 +74,16 @@ end_per_suite(Config) ->
         end,
         Env),
     rabbit_ct_helpers:run_teardown_steps(Config).
+
+init_per_group(with_rabbitmq_node, Config) ->
+  Config1 = rabbit_ct_helpers:set_config(Config, [
+      {rmq_nodename_suffix, signing_key_group},
+      {rmq_nodes_count, 1}
+  ]),
+  rabbit_ct_helpers:run_steps(Config1, rabbit_ct_broker_helpers:setup_steps()).
+
+end_per_group(with_rabbitmq_node, Config) ->
+  rabbit_ct_helpers:run_steps(Config, rabbit_ct_broker_helpers:teardown_steps()).
 
 init_per_testcase(test_post_process_token_payload_complex_claims, Config) ->
   application:set_env(rabbitmq_auth_backend_oauth2, extra_scopes_source, <<"additional_rabbitmq_scopes">>),
@@ -661,7 +678,7 @@ test_successful_access_with_a_token(_) ->
     Token    = ?UTIL_MOD:sign_token_hs(?UTIL_MOD:token_with_sub(?UTIL_MOD:fixture_token(), Username), Jwk),
 
     ct:log ("signing key ~p", [rabbit_oauth2_config:get_signing_key(<<"token-key">>, <<"rabbitmq">>)]),
-    
+
     {ok, #auth_user{username = Username} = User} =
         rabbit_auth_backend_oauth2:user_login_authentication(Username, [{password, Token}]),
     {ok, #auth_user{username = Username} = User} =

@@ -17,7 +17,7 @@
 all() ->
     [
         {group, other_group},
-        {group, signing_key_group},
+        {group, with_rabbitmq_node},
         {group, with_resource_server_id},
         {group, without_resource_server_id},
         {group, with_resource_servers},
@@ -27,7 +27,7 @@ all() ->
     ].
 groups() ->
     [
-      {signing_key_group, [], [
+      {with_rabbitmq_node, [], [
           add_signing_keys_for_top_specific_resource_server,
           add_signing_keys_for_top_level_resource_server,
 
@@ -80,9 +80,9 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
   rabbit_ct_helpers:run_teardown_steps(Config).
 
-init_per_group(signing_key_group, Config) ->
+init_per_group(with_rabbitmq_node, Config) ->
   Config1 = rabbit_ct_helpers:set_config(Config, [
-      {rmq_nodename_suffix, signing_key_group},
+      {rmq_nodename_suffix, with_rabbitmq_node},
       {rmq_nodes_count, 1}
   ]),
   rabbit_ct_helpers:run_steps(Config1, rabbit_ct_broker_helpers:setup_steps());
@@ -145,7 +145,7 @@ init_per_group(inheritance_group, Config) ->
 init_per_group(_any, Config) ->
   Config.
 
-end_per_group(signing_key_group, Config) ->
+end_per_group(with_rabbitmq_node, Config) ->
   rabbit_ct_helpers:run_steps(Config, rabbit_ct_broker_helpers:teardown_steps());
 
 end_per_group(with_resource_server_id, Config) ->
